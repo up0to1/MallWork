@@ -1,0 +1,13 @@
+{
+	"name": "@mall/skills",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"description": "Mall Work 电商 skill 包：前台/后台工作台能力的工具与 prompt 封装",
+	"dependencies": {
+		"@earendil-works/pi-ai": "^0.83.0",
+		"@earendil-works/pi-coding-agent": "^0.83.0"
+	}
+}
