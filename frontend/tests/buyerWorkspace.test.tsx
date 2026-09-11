@@ -124,3 +124,9 @@ it("刷新后保留偏好页面并重新读取已保存的服务端偏好", asyn
   expect(host.textContent).toContain("喜欢小香风连衣裙");
   expect(requests.filter(r=>r.path==="/commerce/preferences" && r.method==="GET")).toHaveLength(2);
 });
+
+it("展示 Mall Work 品牌且不再展示旧品牌", async () => {
+  await mount();
+  expect(host.querySelector(".brand-name")?.textContent).toBe("Mall Work");
+  expect(host.textContent).not.toContain("Globex");
+});
