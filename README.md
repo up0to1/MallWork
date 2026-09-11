@@ -1,6 +1,8 @@
-# Globex · 跨境电商选购 Agent
+# Mall Work · 跨境电商选购 Agent
 
 基于 **AgentScope 2.x + FastAPI + AG-UI + React** 的电商 Agent 工程。买家用自然语言描述需求，Agent 调用商品检索、品类知识和交易工具，页面实时渲染回答、商品卡和确认单；个人 Skill 与长期偏好可以直接在页面编写和保存。
+
+项目对外品牌为 **Mall Work**；为兼容既有本地数据和会话，数据库文件、Redis 键、Qdrant 集合及协议中的部分 `globex` 内部标识会继续保留。
 
 这是带持久化、运行恢复、观测和评测机制的课程实战工程。商品来自版本化样例目录，订单是本地业务账本，尚未接入真实电商供给、支付或物流。代码功能已交付，但正式检索与 Agent 质量门禁仍有 BLOCK，具体边界见[实施与验证总记录](docs/全计划实施与验证记录-2026-09-09.md)。
 
@@ -14,7 +16,7 @@
 
 ### 让 Codex 帮忙跑起来
 
-在 Codex 中打开 **`globex-agent` 目录**（包含本 README、`pyproject.toml`、`frontend/`），可以直接说：
+在 Codex 中打开 **`MallWork` 目录**（包含本 README、`pyproject.toml`、`frontend/`），可以直接说：
 
 > 帮我把这个项目跑起来。先读 README 和现有配置，检查前置环境与端口；保留现有数据和 .env，不要覆盖。安装缺失依赖，启动前后端，验证健康检查和一次真实页面选购，最后告诉我访问地址。缺少模型凭据时告诉我需要配置哪些字段，不要打印密钥。
 
@@ -22,7 +24,7 @@
 
 ### 本机启动：推荐开发路径
 
-以下命令均从 `globex-agent` 根目录执行。Python 版本范围由 `pyproject.toml` 约束；Node.js 22 与前端 Docker 构建保持一致。模型服务须支持 OpenAI 兼容协议、工具调用和流式输出，且当前账户能访问所选模型。
+以下命令均从 `MallWork` 根目录执行。Python 版本范围由 `pyproject.toml` 约束；Node.js 22 与前端 Docker 构建保持一致。模型服务须支持 OpenAI 兼容协议、工具调用和流式输出，且当前账户能访问所选模型。
 
 **1. 检查环境、安装依赖。**
 
