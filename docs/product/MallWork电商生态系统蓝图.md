@@ -3,7 +3,7 @@ status: approved-design
 date: 2026-09-11
 owners: MallWork product and platform team
 scope: product vision, operating model, capability map, guardrails, and success metrics
-source: ../superpowers/specs/2026-09-11-mallwork-ecosystem-migration-design.md
+source: ../requirements/MallWork电商生态系统需求基线.md
 ---
 
 # MallWork 电商生态系统蓝图
@@ -29,7 +29,6 @@ MallWork 是面向消费者与商家的电商智能协作平台。产品以已�
 
 ### 明确非目标
 
-- 不把旧 Pi CLI/TUI、Node.js Agent 循环或扩展运行时并入新产品
 - 不允许 Agent 绕过应用用例或 Store Adapter 直接写业务数据库
 - 不在第一阶段宣称多租户、商家工作台、持久调度或自动建站已经完成
 - 不用一个 ZMall 专属接口冒充通用生态协议
@@ -134,27 +133,24 @@ flowchart TB
 
 ## 📍 产品推进顺序
 
-1. 保护 Pi 遗留成果并完成需求映射
-2. 建立 tenant/store 身份与授权基础
-3. 实现 Store Adapter v1 运行时和契约测试
-4. 以 ZMall 验证消费者能力与首个站点接入
-5. 建立持久任务、工作流、审批和数字老板运行时
-6. 交付商家运营、监控和创意数字员工
-7. 交付标准站点、接入 SDK 与受控部署流水线
-8. 用第二个平台 Adapter 证明协议可移植性
-9. 在远端备份和功能验收后，单独决定旧仓库归档或删除
+1. 建立 tenant/store 身份与授权基础
+2. 实现 Store Adapter v1 运行时和契约测试
+3. 以 ZMall 验证消费者能力与首个站点接入
+4. 建立持久任务、工作流、审批和数字老板运行时
+5. 交付商家运营、监控和创意数字员工
+6. 交付标准站点、接入 SDK 与受控部署流水线
+7. 用第二个平台 Adapter 证明协议可移植性
 
 详细依赖、退出条件和回滚边界见[分阶段实施路线图](../roadmap/MallWork分阶段实施路线图.md)。Store Adapter 的技术约束见[协议草案](../contracts/store-adapter-v1.md)。
 
 ## 📚 状态口径
 
-本系列迁移文档统一使用四种产品状态：
+MallWork 需求文档统一使用三种产品状态：
 
 | 状态 | 含义 |
 | --- | --- |
 | 已实现 | 新 MallWork 中已有可定位代码与验证证据 |
 | 已具备底座 | 基础设施存在，但目标业务能力尚不完整 |
 | 规划中 | 已进入蓝图或路线图，尚未交付 |
-| 淘汰 | 旧运行方式不进入新产品，仅保留历史证据 |
 
-旧 Pi 仓库中的代码存在不等于新 MallWork 已实现。逐项证据见[Pi 遗留资产迁移清单](../migration/pi遗留资产迁移清单.md)和[OpenSpec 需求映射](../migration/pi-openspec需求映射.md)。
+具体需求、状态和验收场景见 [MallWork 电商生态系统需求基线](../requirements/MallWork电商生态系统需求基线.md)。
