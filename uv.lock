@@ -576,7 +576,7 @@ wheels = [
 ]
 
 [[package]]
-name = "globex-agent"
+name = "mallwork-agent"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

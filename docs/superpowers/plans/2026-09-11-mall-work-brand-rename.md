@@ -60,8 +60,8 @@ def test_fastapi_uses_mall_work_public_title():
 Run:
 
 ```powershell
-docker compose -p mallwork --env-file .env -f docker/docker-compose.yaml run --rm --no-deps app python -m pytest -q tests/test_branding.py
-docker run --rm -v "${PWD}/frontend:/workspace" -w /workspace node:22-alpine npm test -- --run tests/buyerWorkspace.test.tsx
+docker run --rm -v "${PWD}:/workspace" -w /workspace ghcr.io/astral-sh/uv:python3.11-bookworm-slim uv run --frozen python -m pytest -q tests/test_branding.py
+docker run --rm -v "${PWD}/frontend:/workspace" -w /workspace node:22-alpine npm test -- tests/buyerWorkspace.test.tsx
 ```
 
 Expected: the API test reports the old `Globex` title and the frontend test reports the old brand text.
@@ -184,7 +184,7 @@ Run:
 ```powershell
 docker run --rm -v "${PWD}/frontend:/workspace" -w /workspace node:22-alpine npm test
 docker run --rm -v "${PWD}/frontend:/workspace" -w /workspace node:22-alpine npm run build
-docker compose -p mallwork --env-file .env -f docker/docker-compose.yaml run --rm --no-deps app python -m pytest -q tests/test_branding.py
+docker run --rm -v "${PWD}:/workspace" -w /workspace ghcr.io/astral-sh/uv:python3.11-bookworm-slim uv run --frozen python -m pytest -q tests/test_branding.py
 ```
 
 Expected: all commands exit 0.
