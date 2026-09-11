@@ -6,6 +6,16 @@
 
 这是带持久化、运行恢复、观测和评测机制的课程实战工程。商品来自版本化样例目录，订单是本地业务账本，尚未接入真实电商供给、支付或物流。代码功能已交付，但正式检索与 Agent 质量门禁仍有 BLOCK，具体边界见[实施与验证总记录](docs/全计划实施与验证记录-2026-09-09.md)。
 
+## 生态系统需求
+
+MallWork 将从消费者选购 Agent 演进为“AI 数字员工 + AI 数字老板”的电商控制面，通过标准 Store Adapter 接入多个独立站和第三方平台。当前产品需求、架构边界与实施顺序以以下文档为准：
+
+- [MallWork 电商生态系统需求基线](docs/requirements/MallWork电商生态系统需求基线.md)
+- [MallWork 电商生态系统蓝图](docs/product/MallWork电商生态系统蓝图.md)
+- [中心控制面与站点接入架构](docs/architecture/中心控制面与站点接入架构.md)
+- [Store Adapter v1](docs/contracts/store-adapter-v1.md)
+- [MallWork 分阶段实施路线图](docs/roadmap/MallWork分阶段实施路线图.md)
+
 ## 先选一种启动方式
 
 | 方式 | 适合谁 | 需要什么 |
@@ -114,6 +124,9 @@ npm --prefix frontend run preview -- --host 127.0.0.1 --port 5174 --strictPort
 
 ```mermaid
 flowchart TD
+    accTitle: MallWork Current Request Paths
+    accDescr: The React interface uses AG-UI for direct agent runs, while the intents endpoint can use Redis Streams and a worker; both paths share the same orchestrator, tools, persistence, and tracing.
+
     UI[React 页面：对话、商品卡、Skill、偏好] --> Client[官方 AG-UI Client]
     Client -->|POST + SSE / 游标重连| API[FastAPI AG-UI 路由与持久运行日志]
     API --> Orchestrator[Orchestrator：身份、会话、偏好、Skill、Prompt 版本]
@@ -124,7 +137,7 @@ flowchart TD
     Tools --> Search[Embedding → Qdrant → Reranker]
     Tools --> DB[(SQLite：会话、偏好、确认、订单、Skill)]
     API --> Journal[(AG-UI 运行与事件日志)]
-    Legacy[旧 intents HTTP 接口] -->|启用队列时| Redis[Redis Streams]
+    Intents[异步 intents HTTP 接口] -->|启用队列时| Redis[Redis Streams]
     Redis --> Worker[独立 worker]
     Worker --> Orchestrator
     Orchestrator -. OTLP .-> Trace[Langfuse / OTel Collector]
@@ -138,7 +151,7 @@ flowchart TD
 - **交易与可靠性**：确认、幂等操作、订单与库存由 SQLite 事务提交；会话 lease/fencing/CAS 防并发旧写。队列具备 pending 回收、死信与归档。网关并发、重试、熔断和 Harness 约束工具及模型执行。
 - **观测与评测**：OTel/OTLP 关联 API、Agent、模型、工具，队列路径传播 Trace 上下文；Langfuse 可接收追踪与评分。独立 dev/release 数据、运行清单和门禁保留真实失败，不用单测通过代替效果达标。
 
-**两条执行路径要分清**：当前网页的 AG-UI 请求在 API 进程直接执行，运行结果写持久日志；`QUEUE_ENABLED=1` 不会把这条路径自动转交 worker。Redis 队列用于旧 `/commerce/intents` 与异步任务入口，未启用队列时旧同步入口也在 API 进程执行。AG-UI 为保留商品等结构化事实，不使用只缓存最终文本的语义回复缓存。
+**两条执行路径要分清**：当前网页的 AG-UI 请求在 API 进程直接执行，运行结果写持久日志；`QUEUE_ENABLED=1` 不会把这条路径自动转交 worker。Redis 队列用于兼容 `/commerce/intents` 与异步任务入口，未启用队列时同步入口也在 API 进程执行。AG-UI 为保留商品等结构化事实，不使用只缓存最终文本的语义回复缓存。
 
 ## 数据保存在哪里
 

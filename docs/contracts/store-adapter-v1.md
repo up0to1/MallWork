@@ -4,7 +4,7 @@ version: 1.0.0-draft.1
 date: 2026-09-11
 owners: MallWork platform architecture
 scope: platform-neutral commerce site capability contract
-source: ../superpowers/specs/2026-09-11-mallwork-ecosystem-migration-design.md
+source: ../requirements/MallWork电商生态系统需求基线.md
 ---
 
 # MallWork Store Adapter v1

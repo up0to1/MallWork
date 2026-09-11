@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Use the exact project directory `H:\Desktop\WorkPlace\Project\Cross_Big_Project\MallWork`; leave the existing `Mall work` directory untouched.
+- Use the exact project directory `H:\Desktop\WorkPlace\Project\Cross_Big_Project\MallWork`; do not modify sibling project directories.
 - Do not overwrite an existing `.env`, delete `data/`, remove databases, or run `docker compose down -v`.
 - Keep existing internal `globex` package, database, API, collection, and volume identifiers during first deployment.
 - Use host ports 5173 for the page, 8000 for the API, 6333 for Qdrant, and 6379 for Redis; do not silently choose alternate ports.
