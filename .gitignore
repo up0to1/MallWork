@@ -28,6 +28,8 @@ __pycache__/
 # 设计阶段 spec/plan 不作为发布源码的一部分
 docs/superpowers/specs/
 docs/superpowers/plans/
+# 项目设计、研究和验证文档只保留在本地
+docs/
 # 运行态数据仍忽略；评测基准商品集必须随代码版本化。
 data/*
 !data/catalog-v1.jsonl
