@@ -71,3 +71,54 @@
   .scroll-anchor { scroll-margin-bottom:calc(215px + env(safe-area-inset-bottom,0px)); }
 }
 @media(prefers-reduced-motion:reduce) { .plan-card { transition:none; } .plan-card:hover:not(:disabled) { transform:none; } }
+
+/* Keep saved plans visually aligned with the cool indigo workspace theme. */
+.shopping-plans-heading h2 { color: #29356f; }
+.plan-eyebrow,
+.plan-introduction,
+.plan-version,
+.plan-automatic { color: #6b7488; }
+.plan-refresh { color: #5262bd; }
+.plan-refresh:hover { color: #3545aa; }
+.plan-card {
+  border-color: #dce3f0;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 6px 18px rgba(45, 59, 105, 0.035);
+}
+.plan-card:hover:not(:disabled) {
+  border-color: #bcc8ed;
+  background: #fbfcff;
+  box-shadow: 0 10px 24px rgba(45, 59, 105, 0.075);
+}
+.plan-card.is-selected,
+.slash-skill-options > button[aria-selected="true"] {
+  border-color: #7788dc;
+  background: #eef1ff;
+}
+.plan-card-top strong,
+.plan-card-action,
+.slash-skill-name,
+.slash-skill-heading { color: #4354bd; }
+.plan-description,
+.slash-skill-description { color: #6b7488; }
+.plan-empty {
+  border-color: #cfd8ec;
+  background: #f1f4fc;
+  color: #687593;
+}
+.selected-plan,
+.plan-picker-toggle:hover,
+.plan-picker-toggle[aria-expanded="true"] {
+  background: #e9edff;
+  color: #4354bd;
+}
+.plan-picker-panel,
+.slash-skill-menu {
+  border-color: #d6deef;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(45, 59, 105, 0.12);
+}
+.slash-skill-help { border-top-color: #e1e6f0; }
+.skill-run-item--used,
+.skill-event-name { color: #4354bd; }

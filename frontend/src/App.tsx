@@ -291,6 +291,7 @@ export default function App() {
 
   return (
     <>
+      <a className="skip-link" href="#main-content">跳转到主要内容</a>
       <aside className="sidebar" aria-label="主导航">
         <button
           className="brand"
@@ -357,7 +358,7 @@ export default function App() {
           </div>
         </div>
       </aside>
-      <main>
+      <main id="main-content">
         <div className="content">
           <header className="topbar">
             <div className="breadcrumb">

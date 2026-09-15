@@ -52,8 +52,8 @@ npm --prefix frontend ci
 **2. 配置模型。已有 `.env` 时直接编辑，不覆盖。**
 
 ```bash
-# 仅首次创建；存在时保持原文件
-if [ ! -f .env ]; then cp .env.example .env; fi
+# 仅首次创建；存在时保持原文件。项目不会提交本地 .env 模板或密钥配置。
+touch .env
 ```
 
 在 `.env` 中填写以下字段。示例模型名对应默认网关，换供应商时也要换成该账户实际可用的模型。
@@ -146,7 +146,7 @@ flowchart TD
 - **前端与传输**：React 18、TypeScript、Vite；官方 `@ag-ui/client/core 0.0.59` 对接后端 `ag-ui-protocol 0.1.22`。组件消费结构化商品和确认数据，不从模型 Markdown 猜测价格、库存或订单状态。
 - **Agent 编排**：AgentScope 2.x，MainAgent 持有业务工具直接完成简单任务；需要并行、上下文隔离或长链时通过 `task_dispatch` 调用 SearchAgent/TradeAgent。子 Agent 与主 Agent 复用业务工具装配。
 - **业务分层**：DDD 洋葱架构。领域层定义实体和端口，应用层负责用例、工具与编排，基础设施层实现数据库、模型和检索适配，FastAPI 位于最外侧；`composition.py` 统一装配 API 与 worker。
-- **检索与知识**：版本化 JSONL 商品目录装入内存仓储；embedding → Qdrant → HTTP reranker，两级降级到向量排序或关键词。精确商品/SKU ID 可直接查权威目录；预算等硬约束由代码过滤。品类知识使用 Markdown + AgentScope KnowledgeBase。BM25/RRF Hybrid 已实现，默认关闭，尚未证明收益。
+- **检索与知识**：版本化 JSONL 商品目录装入内存仓储；支持 BM25 + Qdrant 向量召回的 RRF 融合，再经 HTTP reranker 精排；服务异常时降级到可用的向量或关键词路径。精确商品/SKU ID 可直接查权威目录；预算等硬约束由代码过滤。品类知识使用 Markdown + AgentScope KnowledgeBase。设置 `HYBRID_RECALL_ENABLED=1` 开启混合召回（Compose 默认值为 0）。
 - **上下文与记忆**：偏好从持久库动态注入独立 hint；个人 Skill 常驻元数据，正文按需加载。工具完整证据与模型决策投影分离，支持证据回查、清理和压缩；预算不足时规则回复收口。Prompt 与工具合同版本绑定会话。
 - **交易与可靠性**：确认、幂等操作、订单与库存由 SQLite 事务提交；会话 lease/fencing/CAS 防并发旧写。队列具备 pending 回收、死信与归档。网关并发、重试、熔断和 Harness 约束工具及模型执行。
 - **观测与评测**：OTel/OTLP 关联 API、Agent、模型、工具，队列路径传播 Trace 上下文；Langfuse 可接收追踪与评分。独立 dev/release 数据、运行清单和门禁保留真实失败，不用单测通过代替效果达标。
@@ -176,12 +176,13 @@ flowchart TD
 
 ## 可选配置与前置依赖
 
-完整默认值以 [settings.py](app/infrastructure/settings.py) 为准，常用项见 [.env.example](.env.example)。
+完整默认值以 [settings.py](app/infrastructure/settings.py) 为准；密钥和环境覆盖项只写入本机 `.env` 或进程环境，不提交仓库。
 
 | 配置 | 作用与前提 |
 | --- | --- |
 | `EMBEDDING_BASE_URL/API_KEY/MODEL`、`EMBEDDING_DIM` | 网关需提供 embeddings；维度必须匹配模型及索引，默认 1024。换模型/维度需规划重建索引 |
-| `RERANKER_BASE_URL`、`RERANKER_MODEL` | 可用 HTTP 精排服务；不配会走向量排序，主链正式门禁会因降级阻断 |
+| `RERANKER_BASE_URL`、`RERANKER_MODEL`、`RERANKER_PROTOCOL` | 可用 HTTP 精排服务；默认 `generic` 协议，也支持百炼 `dashscope`（如 `qwen3.7-text-rerank`）；不配会走向量排序，主链正式门禁会因降级阻断 |
+| `RERANKER_API_KEY` | 精排服务专用 API Key；留空时复用 `LLM_API_KEY` |
 | `QDRANT_URL` | 为空使用本地嵌入式索引；API + worker 多进程应共用 Qdrant 服务端 |
 | `REDIS_URL`、`QUEUE_ENABLED`、`WORKER_CONCURRENCY` | Redis 支持缓存、共享限流、队列；启用旧意图队列必须启动 worker。只使用 Redis 缓存时可设 `QUEUE_ENABLED=0` |
 | `LANGFUSE_BASE_URL/PUBLIC_KEY/SECRET_KEY` | 三项齐全时自动装配现有 OTLP 导出；不配置不影响选购。地址填写纯 URL，例如 `https://cloud.langfuse.com` |

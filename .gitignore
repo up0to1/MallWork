@@ -1,11 +1,39 @@
 .venv/
 __pycache__/
 *.pyc
+# 本地环境与密钥配置：不提交任何 .env 变体
 .env
+.env.*
+.envrc
+.secrets/
+*.local.*
+*.secret.*
 .pytest_cache/
+# IDE、Codex 与本地研究/运行辅助文件
+.idea/
+.vscode/
+.codex/
+.research/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.tsbuildinfo
+# 文档编辑器产生的文件（项目 Markdown 文档仍可提交）
+*.doc
+*.docx
+*.docm
+*.rtf
+*.odt
+# 设计阶段 spec/plan 不作为发布源码的一部分
+docs/superpowers/specs/
+docs/superpowers/plans/
 # 运行态数据仍忽略；评测基准商品集必须随代码版本化。
 data/*
 !data/catalog-v1.jsonl
+# 本地评测运行产物；评测用例与稳定基准仍可提交。
+eval/releases/
+eval/verification/mallwork-eval-*/
 eval/report-*.md
 # 召回评测报告同样是每次跑测的产物，不入库；标注集（eval/*.jsonl）要入库
 eval/recall-report-*.md

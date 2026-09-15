@@ -434,3 +434,38 @@
   outline: 2px solid #6d8a63;
   outline-offset: 4px;
 }
+
+/* Confirmation and order-intent surfaces share the refreshed indigo hierarchy. */
+.confirmations-section { color: #1f2937; }
+.confirmation-eyebrow,
+.confirmation-items small,
+.confirmation-address > span,
+.confirmation-address p,
+.confirmation-scope,
+.confirmation-hint,
+.confirmation-cancel-reason,
+.confirmation-order-id,
+.confirmation-expiry,
+.order-intent-footer p { color: #6b7488; }
+.confirmations-heading h2,
+.confirmation-card h3 { color: #29356f; }
+.confirmation-card {
+  border-color: #dce3ef;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(45, 59, 105, 0.045);
+}
+.confirmation-card.is-resolved { background: #f8f9fd; }
+.confirmation-status { color: #4354bd; background: #e9edff; }
+.confirmation-status.is-expired { color: #9b5a42; background: #fff0eb; }
+.confirmation-items li,
+.confirmation-address,
+.confirmation-total { border-color: #e2e7f0; }
+.confirmation-item-price,
+.confirmation-total > strong,
+.confirmation-details > summary { color: #4354bd; }
+.confirmation-primary { box-shadow: 0 6px 14px rgba(67, 84, 189, 0.16); }
+.confirmation-secondary { color: #5262bd; background: #eef1ff; }
+.confirmation-secondary:not(:disabled):hover { background: #e3e8ff; }
+.confirmation-error { background: #fff1ed; border-color: #f1d8d0; color: #9b4d3f; }
+.confirmation-details > summary:focus-visible { outline-color: #8b98df; }

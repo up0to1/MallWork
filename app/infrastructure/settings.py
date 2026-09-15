@@ -117,6 +117,8 @@ class Settings:
     metrics_reader_buyers: tuple[str, ...] = ()
     identity_hmac_secret: str = field(default="", repr=False)
     hybrid_recall_enabled: bool = False  # 冻结评测证明收益后再启用实验召回
+    reranker_api_key: str = field(default="", repr=False)  # 空值时复用 LLM_API_KEY
+    reranker_protocol: str = "generic"  # generic 或 DashScope Text Rerank API
 
 
 def load_settings() -> Settings:
@@ -130,6 +132,9 @@ def load_settings() -> Settings:
         )
     data_dir = Path(os.getenv("DATA_DIR", str(PROJECT_ROOT / "data")))
     data_dir.mkdir(parents=True, exist_ok=True)  # SQLite 默认落在此目录，建库前必须存在
+    reranker_protocol = os.getenv("RERANKER_PROTOCOL", "generic").strip().lower()
+    if reranker_protocol not in {"generic", "dashscope"}:
+        raise ValueError("RERANKER_PROTOCOL 仅支持 generic 或 dashscope")
     return Settings(
         llm_base_url=llm_base_url,
         llm_api_key=llm_api_key,
@@ -146,6 +151,8 @@ def load_settings() -> Settings:
         qdrant_collection=os.getenv("QDRANT_COLLECTION", "globex_products"),
         reranker_base_url=os.getenv("RERANKER_BASE_URL", ""),
         reranker_model=os.getenv("RERANKER_MODEL", ""),
+        reranker_api_key=os.getenv("RERANKER_API_KEY", ""),
+        reranker_protocol=reranker_protocol,
         tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
         otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
         data_dir=data_dir,
