@@ -31,7 +31,8 @@ docs/superpowers/plans/
 # 运行态数据仍忽略；评测基准商品集必须随代码版本化。
 data/*
 !data/catalog-v1.jsonl
-# 本地评测运行产物；评测用例与稳定基准仍可提交。
+# 评测目录只保留在本机，不随源码提交。
+eval/
 eval/releases/
 eval/verification/mallwork-eval-*/
 eval/report-*.md
