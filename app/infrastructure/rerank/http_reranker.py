@@ -14,7 +14,7 @@ from app.infrastructure.settings import Settings
 
 
 class HttpReranker(Reranker):
-    def __init__(self, settings: Settings, timeout_seconds: float = 3.0) -> None:
+    def __init__(self, settings: Settings, timeout_seconds: float | None = None) -> None:
         endpoint = settings.reranker_base_url.rstrip("/")
         self._dashscope = settings.reranker_protocol == "dashscope"
         if self._dashscope:
@@ -36,7 +36,7 @@ class HttpReranker(Reranker):
             )
         self._api_key = settings.reranker_api_key or settings.llm_api_key
         self._model = settings.reranker_model
-        self._timeout = timeout_seconds
+        self._timeout = settings.reranker_timeout_seconds if timeout_seconds is None else timeout_seconds
 
     async def rerank(self, query: str, documents: list[str]) -> list[float]:
         if not documents:
