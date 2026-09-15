@@ -119,6 +119,7 @@ class Settings:
     hybrid_recall_enabled: bool = False  # 冻结评测证明收益后再启用实验召回
     reranker_api_key: str = field(default="", repr=False)  # 空值时复用 LLM_API_KEY
     reranker_protocol: str = "generic"  # generic 或 DashScope Text Rerank API
+    reranker_timeout_seconds: float = 15.0  # 云端精排通常比普通 HTTP 请求耗时更长
 
 
 def load_settings() -> Settings:
@@ -153,6 +154,7 @@ def load_settings() -> Settings:
         reranker_model=os.getenv("RERANKER_MODEL", ""),
         reranker_api_key=os.getenv("RERANKER_API_KEY", ""),
         reranker_protocol=reranker_protocol,
+        reranker_timeout_seconds=float(os.getenv("RERANKER_TIMEOUT_SECONDS", "15")),
         tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
         otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
         data_dir=data_dir,

@@ -9,6 +9,16 @@ from app.infrastructure.rerank.http_reranker import HttpReranker
 from app.infrastructure.settings import load_settings
 
 
+def test_reranker_timeout_is_configurable(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_API_KEY", "test-gateway-key")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("RERANKER_TIMEOUT_SECONDS", "27")
+
+    settings = load_settings()
+
+    assert settings.reranker_timeout_seconds == 27.0
+
+
 def test_full_reranker_endpoint_is_used_with_gateway_authorization(monkeypatch, tmp_path) -> None:
     captured: dict = {}
 
