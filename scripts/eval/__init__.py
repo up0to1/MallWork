@@ -7,6 +7,8 @@
     validate_datasets.py     标注集自检（拿去评测前先跑这个）
     run_product_recall.py    商品检索（product_search）召回评测
     run_category_recall.py   品类知识库（CategoryInsight）召回评测
+    latency_benchmark.py      已保存 serial/parallel 样本的离线延迟对比
+    release_preflight.py      发版前只读冻结检查（数据、配置、源码状态）
 
 两个跑测脚本共用 metrics，直连 UseCase / KnowledgeBase，不过 HTTP、不过 Agent——
 召回评测的定位是模块级「日常体检」，必须快且便宜，才可能常驻 CI。

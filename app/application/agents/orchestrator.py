@@ -58,7 +58,7 @@ from app.domain.session.ports.conversation_store import (
     ConversationTurn,
 )
 from app.domain.session.ports.session_store import SessionStore  # noqa: F401 —— 保留类型引用
-from app.infrastructure.cache.semantic_cache import SemanticCache
+from app.infrastructure.cache.semantic_cache import SemanticCache, is_cacheable_query
 from app.infrastructure.context import ShoppingContext, ShoppingContextSnapshot
 from app.infrastructure.eventbus import TradeEventBus, observe_run_events
 from app.infrastructure.budget import init_budget, remember_verified_result, get_budget, rule_fallback_text
@@ -271,7 +271,12 @@ class MainAgentOrchestrator:
             private_store = getattr(getattr(self._sessions, "_main_factory", None), "buyer_skill_store", None)
             has_private_skills = bool(await asyncio.to_thread(private_store.list, intent.buyer_id)) if private_store is not None else False
             use_semantic_cache = use_semantic_cache and not has_trade_state and intent.selected_skill is None and not has_private_skills
-            cached = await self._lookup_cache(intent, has_history) if use_semantic_cache else None
+            if use_semantic_cache:
+                cached = await self._lookup_cache(intent, has_history)
+            else:
+                # 记录策略性 bypass，但不把它放进命中率分母。
+                self._publish_cache_lookup("bypass_policy", latency_ms=0)
+                cached = None
             if cached is not None:
                 final_text = self._guard_final_text(session_id, cached)
                 self._bus.publish(session_id, "final.result", {"text": final_text})
@@ -379,19 +384,33 @@ class MainAgentOrchestrator:
         ).hexdigest()[:16]
 
     async def _lookup_cache(self, intent: SubmitIntentInput, has_history: bool) -> Optional[str]:
-        """语义缓存查询；命中时发 cache.hit 事件让过程可见（不静默复用）。"""
-        if self._semantic_cache is None:
+        """语义缓存查询；命中/未命中/绕过都发低敏事件，便于离线统计。"""
+        started = time.perf_counter()
+        if self._semantic_cache is None or not getattr(self._semantic_cache, "enabled", True):
+            self._publish_cache_lookup("disabled", latency_ms=(time.perf_counter() - started) * 1000)
+            return None
+        if has_history:
+            self._publish_cache_lookup("bypass_history", latency_ms=(time.perf_counter() - started) * 1000)
+            return None
+        if not is_cacheable_query(intent.raw_query):
+            self._publish_cache_lookup("bypass_unsafe", latency_ms=(time.perf_counter() - started) * 1000)
             return None
         scope = await self._preference_scope(intent.buyer_id)
         if scope is None:
+            self._publish_cache_lookup("error", latency_ms=(time.perf_counter() - started) * 1000)
             return None
-        hit = await self._semantic_cache.lookup(
-            intent.buyer_id,
-            intent.raw_query,
-            has_history,
-            scope=scope,
-        )
+        try:
+            hit = await self._semantic_cache.lookup(
+                intent.buyer_id,
+                intent.raw_query,
+                has_history,
+                scope=scope,
+            )
+        except Exception:  # noqa: BLE001 —— 缓存异常不能影响主链路
+            self._publish_cache_lookup("error", latency_ms=(time.perf_counter() - started) * 1000)
+            return None
         if hit is None:
+            self._publish_cache_lookup("miss", latency_ms=(time.perf_counter() - started) * 1000)
             return None
         logger.info("语义缓存命中（%.4f）：%s", hit.similarity, intent.raw_query)
         self._bus.publish(
@@ -399,7 +418,21 @@ class MainAgentOrchestrator:
             "cache.hit",
             {"similarity": hit.similarity, "matched_query": hit.matched_query},
         )
+        self._publish_cache_lookup(
+            "hit", latency_ms=(time.perf_counter() - started) * 1000,
+            similarity=hit.similarity,
+        )
         return hit.reply
+
+    def _publish_cache_lookup(self, outcome: str, *, latency_ms: float, similarity: float | None = None) -> None:
+        bus = getattr(self, "_bus", None)
+        if bus is None:
+            # 允许直接调用缓存 helper 的单元测试/诊断对象不注入事件总线。
+            return
+        payload = {"outcome": outcome, "latency_ms": round(max(0.0, latency_ms), 3)}
+        if similarity is not None:
+            payload["similarity"] = similarity
+        bus.publish(ShoppingContext.current_session_id(), "cache.lookup", payload)
 
     async def _remember_cache(
         self, intent: SubmitIntentInput, final_text: str, has_history: bool,

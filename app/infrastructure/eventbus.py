@@ -8,11 +8,13 @@ Presentation 层按 shopping_session_id 订阅后推送给前端 WebSocket。
     agent.dispatch      子 Agent 被调度
     tool.invoke         工具开始执行
     tool.result         工具执行完成
+    tool.telemetry      工具遥测开始/完成（低敏调用 ID、状态与耗时）
     token.delta         流式 token 增量
     plan.update         Task 计划变更
     context.compressed  上下文压缩发生（三期：Context 工程）
     model.fallback      主模型限流重试用尽，已回退到备用模型（四期）
     cache.hit           语义缓存命中，本轮未调模型（四期）
+    cache.lookup        语义缓存查找结果（低敏 outcome 与耗时）
     task.queued         意图已入队，等待 worker 领取（四期）
     task.started        worker 已开始处理（四期）
     final.result        最终回复
@@ -55,12 +57,14 @@ EVENT_TYPES = (
     "agent.dispatch",
     "tool.invoke",
     "tool.result",
+    "tool.telemetry",
     "token.delta",
     "plan.update",
     "context.compressed",
     "model.fallback",
     "usage.summary",
     "cache.hit",
+    "cache.lookup",
     "task.queued",
     "task.started",
     "confirmation.required",

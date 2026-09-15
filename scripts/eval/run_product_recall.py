@@ -33,16 +33,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.application.usecases.catalog_search import CatalogSearchUseCase  # noqa: E402
 from app.domain.catalog.product_search_spec import ProductSearchSpec  # noqa: E402
-from app.infrastructure.embedding.openai_embedding_client import (  # noqa: E402
-    OpenAIEmbeddingClient,
-)
 from app.infrastructure.persistence.in_memory_repositories import (  # noqa: E402
     InMemoryProductRepository,
 )
-from app.infrastructure.rerank.http_reranker import HttpReranker  # noqa: E402
-from app.infrastructure.settings import load_settings  # noqa: E402
-from app.infrastructure.vector.index_bootstrap import bootstrap_product_index  # noqa: E402
-from app.infrastructure.vector.qdrant_product_index import QdrantProductIndex  # noqa: E402
 from scripts.eval.metrics import (  # noqa: E402
     Aggregate,
     QueryResult,
@@ -124,6 +117,14 @@ async def build_usecase(strategy: str) -> tuple[CatalogSearchUseCase, InMemoryPr
     repo = InMemoryProductRepository()
     if strategy in {"keyword_2gram", "bm25"}:
         return CatalogSearchUseCase(repo, hybrid_enabled=strategy == "bm25"), repo, strategy
+
+    # 仅 embedding/hybrid 档需要这些可选依赖；关键词/BM25 离线档不应因 Qdrant
+    # 客户端未安装而无法导入 runner 或执行 profile 校验。
+    from app.infrastructure.embedding.openai_embedding_client import OpenAIEmbeddingClient
+    from app.infrastructure.rerank.http_reranker import HttpReranker
+    from app.infrastructure.settings import load_settings
+    from app.infrastructure.vector.index_bootstrap import bootstrap_product_index
+    from app.infrastructure.vector.qdrant_product_index import QdrantProductIndex
 
     settings = load_settings()
     embedder = OpenAIEmbeddingClient(settings)

@@ -9,9 +9,15 @@ import math
 from threading import Lock
 from time import perf_counter
 from typing import Any
+from contextlib import contextmanager
 
-_TOOL_NAMES = {'product_search_tool', 'category_insight_tool', 'create_order_tool', 'query_order_tool',
-               'cancel_order_tool', 'remember_preference_tool', 'landed_price_tool', 'web_search_tool'}
+_TOOL_NAMES = {
+    'product_search_tool', 'category_insight_tool', 'create_order_tool', 'query_order_tool',
+    'cancel_order_tool', 'remember_preference_tool', 'update_preference_tool',
+    'forget_preference_tool', 'conversation_fact_lookup', 'load_agent_skill_tool',
+    'lookup_strategy_memory_tool',
+    'landed_price_tool', 'web_search_tool', 'task_dispatch',
+}
 _STATUSES = {'success', 'error', 'cancelled'}
 _BUCKETS = (100, 500, 1000, 5000, 15000, 30000, 60000, 120000)
 
@@ -48,6 +54,25 @@ class RequestObservation:
 
 
 _current: ContextVar[RequestObservation | None] = ContextVar('globex_operational_metrics', default=None)
+_active_tool: ContextVar[tuple[str, str] | None] = ContextVar('globex_active_tool', default=None)
+_last_tool: ContextVar[tuple[str, str] | None] = ContextVar('globex_last_tool', default=None)
+
+
+@contextmanager
+def tool_scope(tool_call_id: str, tool_name: str):
+    """把当前工具调用关联到其内部发生的模型请求（例如 task_dispatch worker）。"""
+    previous = _active_tool.get()
+    token = _active_tool.set((tool_call_id, tool_name))
+    # 嵌套工具完成后保留最近的子工具，便于归因 worker 的后处理成本；最外层工具
+    # 完成时清空，避免主 Agent 的下一次 generation 误归因到上一工具。
+    _last_tool.set((tool_call_id, tool_name))
+    try:
+        yield
+    finally:
+        _active_tool.reset(token)
+        if previous is None:
+            # 工具作用域结束后，主 Agent 的下一次模型调用不能误归因到上一工具。
+            _last_tool.set(None)
 
 
 class MetricsRegistry:
@@ -57,6 +82,8 @@ class MetricsRegistry:
         self.counters: Counter = Counter()
         self.histogram: Counter = Counter()
         self.samples: deque = deque(maxlen=window_size)
+        self.tool_samples: deque = deque(maxlen=max(window_size * 10, 100))
+        self._tool_tokens: dict[str, list[int]] = {}
 
     def record(self, result: dict) -> None:
         with self._lock:
@@ -71,16 +98,86 @@ class MetricsRegistry:
             self.counters['input_tokens_observed_total', ''] += result['observed_input_tokens']
             self.counters['output_tokens_observed_total', ''] += result['observed_output_tokens']
 
+    def record_model_tokens_for_tool(self, tool_call_id: str, input_tokens: int | None,
+                                     output_tokens: int | None) -> None:
+        """记录工具作用域内模型调用的 usage，待工具完成时并入该调用样本。"""
+        if not isinstance(tool_call_id, str) or not tool_call_id:
+            return
+        if type(input_tokens) is not int or input_tokens < 0:
+            return
+        if type(output_tokens) is not int or output_tokens < 0:
+            return
+        with self._lock:
+            totals = self._tool_tokens.setdefault(tool_call_id, [0, 0])
+            totals[0] += input_tokens
+            totals[1] += output_tokens
+
+    def record_tool(self, payload: dict[str, Any]) -> None:
+        """写入统一工具遥测；只接受固定工具名和数值字段。"""
+        if payload.get('phase', 'finish') != 'finish':
+            return
+        tool = payload.get('tool') or payload.get('tool_name')
+        if not isinstance(tool, str) or tool not in _TOOL_NAMES:
+            return
+        elapsed = payload.get('elapsed_ms')
+        if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed < 0:
+            return
+        status = payload.get('status')
+        if status not in {'success', 'error', 'timeout', 'rejected'}:
+            return
+        call_id = payload.get('tool_call_id')
+        if not isinstance(call_id, str) or not call_id:
+            return
+        with self._lock:
+            associated = self._tool_tokens.pop(call_id, [None, None])
+            if type(payload.get('input_tokens')) is int and payload['input_tokens'] >= 0:
+                associated[0] = payload['input_tokens']
+            if type(payload.get('output_tokens')) is int and payload['output_tokens'] >= 0:
+                associated[1] = payload['output_tokens']
+            self.tool_samples.append({
+                'tool': tool,
+                'tool_call_id': call_id,
+                'status': status,
+                'elapsed_ms': float(elapsed),
+                'input_tokens': associated[0],
+                'output_tokens': associated[1],
+            })
+
+    def _tool_snapshot(self) -> dict[str, dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in self.tool_samples:
+            grouped.setdefault(row['tool'], []).append(row)
+        result = {}
+        for tool, rows in sorted(grouped.items()):
+            elapsed = sorted(row['elapsed_ms'] for row in rows)
+            errors = sum(row['status'] != 'success' for row in rows)
+            input_tokens = [row['input_tokens'] for row in rows if row['input_tokens'] is not None]
+            output_tokens = [row['output_tokens'] for row in rows if row['output_tokens'] is not None]
+            result[tool] = {
+                'calls': len(rows),
+                'errors': errors,
+                'error_rate': errors / len(rows),
+                'p50_ms': elapsed[max(0, math.ceil(len(elapsed) * .50) - 1)],
+                'p95_ms': elapsed[max(0, math.ceil(len(elapsed) * .95) - 1)],
+                'input_tokens': sum(input_tokens) if len(input_tokens) == len(rows) else None,
+                'output_tokens': sum(output_tokens) if len(output_tokens) == len(rows) else None,
+                'usage_complete': len(input_tokens) == len(rows) and len(output_tokens) == len(rows),
+            }
+        return result
+
     def snapshot(self) -> dict:
         with self._lock:
             rows = list(self.samples)
             total = len(rows)
+            from app.infrastructure.cache.telemetry import registry as cache_registry
             return {'scope': 'process_local_business_turns', 'window_count': total,
                     'latency_p95_ms': percentile([row['elapsed_ms'] for row in rows]),
                     'error_rate': sum(row['status'] == 'error' for row in rows) / total if total else None,
                     'cancel_rate': sum(row['status'] == 'cancelled' for row in rows) / total if total else None,
                     'fallback_rate': sum(row['fallbacks'] > 0 for row in rows) / total if total else None,
-                    'usage_unknown_rate': sum(row['unknown_usage_calls'] > 0 for row in rows) / total if total else None}
+                    'usage_unknown_rate': sum(row['unknown_usage_calls'] > 0 for row in rows) / total if total else None,
+                    'tools': self._tool_snapshot(),
+                    'cache': cache_registry.snapshot()}
 
     def prometheus(self) -> str:
         with self._lock:
@@ -92,6 +189,18 @@ class MetricsRegistry:
             for bound in _BUCKETS:
                 lines.append(f'globex_request_duration_ms_bucket{{le="{bound}"}} {self.histogram[bound]}')
             lines.extend([f'globex_request_duration_ms_bucket{{le="+Inf"}} {total}', f'globex_request_duration_ms_count {total}'])
+            for tool, summary in self._tool_snapshot().items():
+                label = f'{{tool="{tool}"}}'
+                lines.append(f'globex_tool_calls_total{label} {summary["calls"]}')
+                lines.append(f'globex_tool_errors_total{label} {summary["errors"]}')
+                lines.append(f'globex_tool_latency_p95_ms{label} {summary["p95_ms"]}')
+                if summary['input_tokens'] is not None:
+                    lines.append(f'globex_tool_input_tokens_total{label} {summary["input_tokens"]}')
+                    lines.append(f'globex_tool_output_tokens_total{label} {summary["output_tokens"]}')
+            from app.infrastructure.cache.telemetry import registry as cache_registry
+            cache = cache_registry.snapshot()
+            for outcome, count in cache['outcomes'].items():
+                lines.append(f'globex_cache_lookup_total{{outcome="{outcome}"}} {count}')
             return '\n'.join(lines) + '\n'
 
     def alerts(self, *, minimum_samples: int = 20, latency_p95_ms: float = 60000,
@@ -110,6 +219,7 @@ registry = MetricsRegistry()
 def begin_request() -> RequestObservation:
     observation = RequestObservation()
     observation.token = _current.set(observation)
+    _last_tool.set(None)
     return observation
 
 
@@ -141,6 +251,9 @@ def observe_model(*, input_tokens: int | None, output_tokens: int | None, ttft_m
         observation.cost_usd += cost_usd
     else:
         observation.unknown_cost_calls += 1
+    tool_context = _last_tool.get() or _active_tool.get()
+    if tool_context is not None:
+        registry.record_model_tokens_for_tool(tool_context[0], input_tokens, output_tokens)
 
 
 def observe_event(event_type: str, payload: Any) -> None:
@@ -153,6 +266,16 @@ def observe_event(event_type: str, payload: Any) -> None:
         if isinstance(tool, str) and tool in _TOOL_NAMES:
             observation.tool_calls += 1
             observation.tool_errors += int(bool(payload.get('error')) or payload.get('success') is False or payload.get('ok') is False)
+    elif event_type == 'tool.telemetry':
+        registry.record_tool(payload)
+    elif event_type == 'cache.lookup':
+        from app.infrastructure.cache.telemetry import registry as cache_registry
+        cache_registry.observe(
+            payload.get('outcome', ''),
+            latency_ms=payload.get('latency_ms'),
+            saved_input_tokens=payload.get('saved_input_tokens', 0),
+            saved_output_tokens=payload.get('saved_output_tokens', 0),
+        )
     elif event_type == 'model.fallback':
         observation.fallbacks += 1
 

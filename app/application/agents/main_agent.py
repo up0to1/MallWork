@@ -52,6 +52,7 @@ from app.infrastructure.resilience import (
     CircuitBreakerRegistry,
     ToolResilienceMiddleware,
 )
+from app.infrastructure.tool_telemetry import ToolTelemetryMiddleware
 from app.infrastructure.settings import Settings
 from app.infrastructure.tracing import build_agent_middlewares, record_prompt_assignment
 
@@ -95,10 +96,12 @@ class MainAgentFactory:
     def _resilience(self) -> list:
         """工具中间件链。
 
-        洋葱顺序：Harness 在外、Resilience 在内——先做准入判定（顺序/循环），
-        再进超时与熔断保护；这样被硬拒的调用不会白白占用一次熔断名额。
+        洋葱顺序：Telemetry 最外、Harness 居中、Resilience 在内——先记录完整调用
+        时延，再做准入判断（顺序/循环），最后进入超时与熔断保护；被硬拒的调用
+        不会白白占用一次熔断名额。
         """
         chain: list = []
+        chain.append(ToolTelemetryMiddleware(self._bus, agent_name="main_agent"))
         if self._settings.harness_enabled:
             chain.append(
                 HarnessToolMiddleware(
