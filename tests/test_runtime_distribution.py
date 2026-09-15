@@ -36,6 +36,8 @@ def test_compose_passes_reranker_configuration_to_app_and_worker() -> None:
 
     assert compose.count("RERANKER_BASE_URL: ${RERANKER_BASE_URL-}") == 2
     assert compose.count("RERANKER_MODEL: ${RERANKER_MODEL-}") == 2
+    assert compose.count("RERANKER_PROTOCOL: ${RERANKER_PROTOCOL:-generic}") == 2
+    assert compose.count("RERANKER_API_KEY: ${RERANKER_API_KEY-}") == 2
 
 
 def test_qdrant_server_matches_locked_client_minor_version() -> None:

@@ -42,3 +42,66 @@
 .workspace-row-actions { display: flex; gap: 20px; font-size: 12px; }
 @media(max-width: 1050px) { .workspace-grid { grid-template-columns: 1fr; } .workspace-library { order: 2; } }
 @media(max-width: 640px) { .buyer-workspace { padding-top: 22px; } .workspace-editor,.workspace-library { padding: 20px; } .workspace-heading { margin-bottom: 25px; } .workspace-section-title > span { display: none; } .mobile-nav { overflow-x: auto; } .mobile-nav button { flex-shrink: 0; } }
+
+/* Workspace settings use the same surface, border and indigo action vocabulary. */
+.workspace-heading h1,
+.workspace-section-title h2 { color: #29356f; }
+.workspace-heading h1 em { color: #5968cf; }
+.workspace-heading p,
+.workspace-section-title > span,
+.workspace-item-main span,
+.workspace-item-main small,
+.workspace-help,
+.workspace-form-footer > span { color: #6b7488; }
+.workspace-library {
+  background: #eef1f8;
+  border: 1px solid #e0e5ef;
+  border-radius: 16px;
+}
+.workspace-editor {
+  background: #ffffff;
+  border-color: #dce3ef;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(45, 59, 105, 0.045);
+}
+.workspace-section-title button,
+.workspace-row-actions button,
+.workspace-delete-link,
+.workspace-delete button,
+.workspace-error button { color: #5262bd; }
+.workspace-new {
+  border-color: #abb8df;
+  color: #4354bd;
+  background: #f8f9ff;
+}
+.workspace-new:hover { background: #e9edff; border-color: #8e9ddd; }
+.workspace-item {
+  background: #ffffff;
+  border-color: #e2e7f0;
+  box-shadow: 0 5px 16px rgba(45, 59, 105, 0.03);
+}
+.workspace-item.selected { border-color: #7183d7; background: #f8f9ff; }
+.workspace-item-main strong { color: #4354bd; }
+.workspace-editor input,
+.workspace-editor textarea,
+.workspace-editor select {
+  border-color: #d6deed;
+  background: #fbfcff;
+  color: #27334f;
+}
+.workspace-editor input:focus,
+.workspace-editor textarea:focus,
+.workspace-editor select:focus {
+  border-color: #8b98df;
+  box-shadow: 0 0 0 3px rgba(109, 123, 218, 0.14);
+  outline: none;
+}
+.workspace-save { background: #4354bd; box-shadow: 0 6px 14px rgba(67, 84, 189, 0.16); }
+.workspace-save:hover { background: #3545aa; }
+.workspace-note,
+.workspace-notice { background: #e9edff; color: #4354bd; }
+.workspace-example { background: #eef1ff; color: #4354bd; }
+.workspace-error { background: #fff1ed; color: #a04d3d; }
+.preference-kind { background: #e9edff; color: #4354bd; }
+.preference-kind.dislike { color: #9b5a42; background: #fff0eb; }
+.workspace-empty { color: #6b7488; }
