@@ -27,14 +27,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from app.infrastructure.rag.knowledge_retrieval import search_knowledge
-from app.infrastructure.rag.category_knowledge import (  # noqa: E402
-    bootstrap_category_knowledge,
-    build_category_knowledge_base,
-    has_answerable_knowledge,
-    policy_fact_status,
-)
-from app.infrastructure.settings import load_settings  # noqa: E402
 from scripts.eval.metrics import (  # noqa: E402
     Aggregate,
     QueryResult,
@@ -94,6 +86,9 @@ def source_of(item) -> str:
 
 
 async def run_dataset(knowledge_base, cases: list[dict], top_k: int, *, observations: list[dict] | None = None) -> Aggregate:
+    from app.infrastructure.rag.category_knowledge import has_answerable_knowledge, policy_fact_status
+    from app.infrastructure.rag.knowledge_retrieval import search_knowledge
+
     results: list[QueryResult] = []
     empty_results: list[bool] = []
     policy_results: list[bool] = []
@@ -228,6 +223,12 @@ async def main(argv: list[str] | None = None) -> None:
         path = write_manifest(manifest, report_path)
         print(f"仅校验选集：NOT_RUN；未计算指标、未判定通过。证据：{path}")
         return
+
+    from app.infrastructure.rag.category_knowledge import (
+        bootstrap_category_knowledge,
+        build_category_knowledge_base,
+    )
+    from app.infrastructure.settings import load_settings
     observations: list[dict] = []
     try:
         settings = load_settings()

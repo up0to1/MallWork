@@ -32,6 +32,7 @@ from app.infrastructure.resilience import (
     CircuitBreakerRegistry,
     ToolResilienceMiddleware,
 )
+from app.infrastructure.tool_telemetry import ToolTelemetryMiddleware
 from app.infrastructure.settings import Settings
 from app.infrastructure.tracing import build_agent_middlewares
 
@@ -56,7 +57,10 @@ class SearchAgentFactory:
         self.evidence_store = ContextEvidenceStore(settings.data_dir / "context_evidence.db")
 
     def _resilience(self) -> list:
-        return [ToolResilienceMiddleware(self._circuit_registry, self._bus)]
+        return [
+            ToolTelemetryMiddleware(self._bus, agent_name="search_agent"),
+            ToolResilienceMiddleware(self._circuit_registry, self._bus),
+        ]
 
     def build_tools(self) -> list[FunctionTool]:
         """SearchAgent 的业务工具集，MainAgent 单干时持有同一批（均带超时+熔断保护）。

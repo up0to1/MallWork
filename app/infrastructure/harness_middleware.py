@@ -20,8 +20,9 @@
 失败语义：断言失败一律不 raise，只把提示并入返回给模型的文本，让它下一轮自愈；
 只有写路径前置校验不满足时才硬拒（返回 ERROR chunk，不执行工具）。
 
-挂载位置与 ToolResilienceMiddleware 并列，见 main_agent._resilience()。
-洋葱顺序：Harness 在外、Resilience 在内——先做准入判断，再进超时/熔断保护。
+挂载位置与 ToolTelemetryMiddleware、ToolResilienceMiddleware 并列，见
+main_agent._resilience()。在后两者之间的洋葱顺序为 Harness 在外、Resilience
+在内——先做准入判断，再进超时/熔断保护；Telemetry 位于最外层记录完整时延。
 """
 from __future__ import annotations
 

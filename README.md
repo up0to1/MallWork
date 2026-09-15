@@ -210,6 +210,31 @@ uv run python -m scripts.eval.validate_datasets
 
 真实模型冒烟和正式评测会调用外部服务，不能用占位密钥代替效果验收。Redis 故障恢复测试需要本机可用的 `redis-server`；如果系统找不到该命令，相关测试会跳过。
 
+开发阶段默认只做零成本验证：缓存统计、任务指标聚合、工具遥测和串行/并行延迟分析均可使用单元测试、Mock Worker 或已保存事件离线回放，不会调用模型。延迟分析脚本只读取 JSONL 样本：
+
+```bash
+uv run python -m scripts.eval.latency_benchmark \
+  --serial path/to/serial.jsonl \
+  --parallel path/to/parallel.jsonl \
+  --output path/to/latency-report.json
+```
+
+只有在代码和离线报告全部通过后，才运行一次真实模型 release benchmark。真实评测需显式关闭语义缓存（`SEMANTIC_CACHE_ENABLED=0`），并固定同一批用例、模型和 Prompt；评测脚本不会因为普通测试或离线分析自动发起模型请求。
+
+`scripts/verify_parallel.py` 属于真实服务验证脚本，会产生模型调用；开发阶段不要运行它，等串行/并行采样数据准备好后再作为最终 benchmark 使用。
+
+商品 BM25 离线档（`--strategy bm25`）和品类 runner 的选集/门槛校验采用延迟导入，不要求本机先安装 Qdrant 或 AgentScope；只有真正执行向量/知识库检索时才需要对应依赖和服务。
+
+最终评测前可先运行只读冻结检查：
+
+```bash
+uv run python -m scripts.eval.release_preflight --strict
+```
+
+它会核对商品 150/45、知识库 50/15、Agent 100/30 的总量与 release split，输出数据、源码和配置键的状态；不会打印密钥，也不会发起模型请求。`--strict` 只有在工作区干净、必需模型配置齐全且 `SEMANTIC_CACHE_ENABLED=0` 时才通过。
+
+运行中的低敏聚合可通过受保护的 `/internal/metrics/summary` 查看，包含业务回合、缓存 hit/miss、工具调用次数、工具错误率及 P50/P95 延迟。工具遥测不会记录原始参数、商品回复或买家身份；模型 Token 只有在工具作用域内可明确关联时才计入工具维度，未知 usage 保持为 `null`。
+
 | 现象 | 优先检查 |
 | --- | --- |
 | 缺少 `LLM_API_KEY`、401 或 403 | `.env`、环境变量覆盖、模型访问权限；不要输出完整密钥 |
