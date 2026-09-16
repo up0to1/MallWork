@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 .git
+.worktrees
 .venv
 **/__pycache__
 **/*.pyc
