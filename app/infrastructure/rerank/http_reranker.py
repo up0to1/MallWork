@@ -7,6 +7,8 @@ RERANKER_BASE_URL 未配置时组装根不会实例化本类；调用失败抛�
 """
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 
 from app.domain.catalog.ports.retrieval_ports import Reranker
@@ -37,6 +39,7 @@ class HttpReranker(Reranker):
         self._api_key = settings.reranker_api_key or settings.llm_api_key
         self._model = settings.reranker_model
         self._timeout = settings.reranker_timeout_seconds if timeout_seconds is None else timeout_seconds
+        self._max_retries = max(0, settings.reranker_max_retries)
 
     async def rerank(self, query: str, documents: list[str]) -> list[float]:
         if not documents:
@@ -50,13 +53,31 @@ class HttpReranker(Reranker):
             else {"model": self._model, "query": query, "documents": documents}
         )
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(
-                self._url,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                json=request_body,
-            )
-            response.raise_for_status()
-            body = response.json()
+            body = None
+            for attempt in range(self._max_retries + 1):
+                try:
+                    response = await client.post(
+                        self._url,
+                        headers={"Authorization": f"Bearer {self._api_key}"},
+                        json=request_body,
+                    )
+                    if response.status_code == 429 or response.status_code >= 500:
+                        response.raise_for_status()
+                    response.raise_for_status()
+                    body = response.json()
+                    break
+                except httpx.RequestError:
+                    if attempt >= self._max_retries:
+                        raise
+                    await asyncio.sleep(0.5 * (2**attempt))
+                except httpx.HTTPStatusError as error:
+                    if error.response.status_code != 429 and error.response.status_code < 500:
+                        raise
+                    if attempt >= self._max_retries:
+                        raise
+                    await asyncio.sleep(0.5 * (2**attempt))
+            if body is None:  # pragma: no cover - loop either returns or raises
+                raise RuntimeError("rerank 请求未返回")
         # 兼容 {results:[{index, relevance_score}]} 协议（Jina/TEI/vLLM rerank 通用形态）
         results = body.get("output", {}).get("results") if self._dashscope else body.get("results")
         if not isinstance(results, list) or len(results) != len(documents):

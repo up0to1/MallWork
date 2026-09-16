@@ -19,6 +19,52 @@ def test_reranker_timeout_is_configurable(monkeypatch, tmp_path) -> None:
     assert settings.reranker_timeout_seconds == 27.0
 
 
+def test_reranker_retry_count_is_configurable(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LLM_API_KEY", "test-gateway-key")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("RERANKER_MAX_RETRIES", "4")
+
+    settings = load_settings()
+
+    assert settings.reranker_max_retries == 4
+
+
+def test_reranker_retries_transient_disconnect(monkeypatch, tmp_path) -> None:
+    attempts = {"count": 0}
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"results": [{"index": 0, "relevance_score": 0.8}]}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        async def post(self, url: str, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise http_reranker.httpx.RemoteProtocolError("disconnect")
+            return FakeResponse()
+
+    monkeypatch.setenv("LLM_API_KEY", "test-gateway-key")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("RERANKER_MAX_RETRIES", "1")
+    monkeypatch.setattr(http_reranker.httpx, "AsyncClient", lambda **_: FakeClient())
+
+    scores = asyncio.run(HttpReranker(load_settings()).rerank("q", ["d"]))
+
+    assert scores == [0.8]
+    assert attempts["count"] == 2
+
+
 def test_full_reranker_endpoint_is_used_with_gateway_authorization(monkeypatch, tmp_path) -> None:
     captured: dict = {}
 
