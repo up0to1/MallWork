@@ -75,6 +75,12 @@ async def indexed(tmp_path):
     await index.close()
 
 
+async def test_qdrant_index_ready_probe(indexed):
+    """评测复用索引前应能区分空集合与已建好的集合。"""
+    _repo, _embedder, index = indexed
+    assert await index.is_ready() is True
+
+
 class TestTwoStageRecall:
     async def test_product_card_displays_target_currency_and_preserves_source_price(self):
         """预算筛选与卡片展示必须使用同一目标币种口径。"""
