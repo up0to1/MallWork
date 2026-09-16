@@ -14,6 +14,7 @@ from app.application.agents.ag_ui_adapter import AGUIRunAdapter
 from app.application.agents.orchestrator import SubmitIntentInput
 from app.infrastructure.ag_ui_journal import AGUIJournal, JournalLeaseLost
 from app.infrastructure.eventbus import observe_run_events
+from app.infrastructure.cache.agui_structured_cache import AGUICachedResponse, StructuredSemanticCache
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,22 @@ class Running:
 
 
 class AGUIRuntime:
-    def __init__(self, journal: AGUIJournal, orchestrator, confirmations=None, *, lease_seconds=30, heartbeat_seconds=5):
+    def __init__(
+        self,
+        journal: AGUIJournal,
+        orchestrator,
+        confirmations=None,
+        *,
+        structured_cache: StructuredSemanticCache | None = None,
+        cache_metrics=None,
+        lease_seconds=30,
+        heartbeat_seconds=5,
+    ):
         self.journal, self.orchestrator, self.confirmations = journal, orchestrator, confirmations
+        self.structured_cache = structured_cache
+        if cache_metrics is None:
+            from app.infrastructure.cache.telemetry import registry as cache_metrics
+        self.cache_metrics = cache_metrics
         self.lease_seconds, self.heartbeat_seconds = lease_seconds, heartbeat_seconds
         self.running: dict[str, Running] = {}
 
@@ -135,6 +150,40 @@ class AGUIRuntime:
                 saved = await self.confirmations.list(intent.buyer_id, intent.shopping_session_id)
                 adapter.state["confirmations"] = saved["confirmations"]
                 adapter.snapshot()
+            cache_ticket = None
+            if self.structured_cache is not None:
+                cache_started = time.perf_counter()
+                decision = await self.orchestrator.prepare_structured_cache(
+                    intent,
+                    # 客户端带历史时只会导致保守旁路；不会扩大缓存命中范围。
+                    has_history=len(body.messages) > 1,
+                )
+                cache_ticket = decision.ticket
+                cache_outcome = decision.outcome
+                if cache_ticket is not None:
+                    try:
+                        hit = await self.structured_cache.lookup(cache_ticket, intent.raw_query)
+                        cache_outcome = "hit" if hit is not None else "miss"
+                    except Exception as err:  # noqa: BLE001 —— 缓存永远不能阻断页面主链路
+                        logger.warning("AG-UI 结构化缓存查询失败，回源 Agent：%s", type(err).__name__)
+                        hit = None
+                        cache_outcome = "error"
+                    self.cache_metrics.observe(
+                        cache_outcome,
+                        latency_ms=(time.perf_counter() - cache_started) * 1000,
+                    )
+                    if hit is not None:
+                        adapter.replay_cached(
+                            hit.response,
+                            similarity=hit.similarity,
+                            matched_query=hit.matched_query,
+                        )
+                        return
+                else:
+                    self.cache_metrics.observe(
+                        cache_outcome,
+                        latency_ms=(time.perf_counter() - cache_started) * 1000,
+                    )
             with observe_run_events(adapter.on_trade_event):
                 result = await self.orchestrator.handle_intent(intent, event_observer=adapter.on_agent_event,
                     use_semantic_cache=False, persistence_guard=entry.is_valid)
@@ -144,6 +193,12 @@ class AGUIRuntime:
                 adapter.fail(adapter.error or "本轮服务暂时未能完成请求，请重试。")
             else:
                 adapter.finish(result.final_text)
+                if cache_ticket is not None:
+                    response = AGUICachedResponse.from_runtime(result.final_text, adapter.state)
+                    try:
+                        await self.structured_cache.remember(cache_ticket, intent.raw_query, response)
+                    except Exception as err:  # noqa: BLE001
+                        logger.warning("AG-UI 结构化缓存写入失败，忽略：%s", type(err).__name__)
         except asyncio.CancelledError:
             adapter.fail("本轮已明确停止" if entry.reason == "stop" else "服务重启或执行中断，已保存的内容仍可恢复。", cancelled=entry.reason == "stop")
         except Exception:
