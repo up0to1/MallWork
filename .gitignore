@@ -34,11 +34,11 @@ docs/
 # 运行态数据仍忽略；评测基准商品集必须随代码版本化。
 data/*
 !data/catalog-v1.jsonl
-# 评测目录只保留在本机，不随源码提交。
-eval/
-eval/releases/
-eval/verification/mallwork-eval-*/
-eval/report-*.md
+# 根目录评测数据与报告只保留在本机；scripts/eval/ 中的 runner 仍随源码提交。
+/eval/
+/eval/releases/
+/eval/verification/mallwork-eval-*/
+/eval/report-*.md
 # 召回评测报告同样是每次跑测的产物，不入库；标注集（eval/*.jsonl）要入库
-eval/recall-report-*.md
-eval/category-recall-report-*.md
+/eval/recall-report-*.md
+/eval/category-recall-report-*.md

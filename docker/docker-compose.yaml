@@ -68,7 +68,10 @@ services:
       # 四期：Redis 缓存（embedding 缓存 + 语义缓存 + 幂等键）；置空则全部缓存关闭
       REDIS_URL: ${REDIS_URL-redis://redis:6379/0}
       SEMANTIC_CACHE_THRESHOLD: ${SEMANTIC_CACHE_THRESHOLD:-0.95}
-      # 跑评测回归时设为 0：开着缓存会把旧回复直接返回，评分变成评缓存
+      # 页面链路缓存保存最终回复、商品卡与检索完成标记，默认 10 分钟。
+      AGUI_STRUCTURED_CACHE_ENABLED: ${AGUI_STRUCTURED_CACHE_ENABLED:-1}
+      AGUI_CACHE_TTL_SECONDS: ${AGUI_CACHE_TTL_SECONDS:-600}
+      # 跑常规 Agent 回归时两个缓存都设为 0；缓存专项 benchmark 则保持 AG-UI 缓存开启。
       SEMANTIC_CACHE_ENABLED: ${SEMANTIC_CACHE_ENABLED:-1}
       # 四期：队列削峰（需 worker 服务一起跑）；QUEUE_ENABLED=0 则意图在 API 进程内直跑
       QUEUE_ENABLED: ${QUEUE_ENABLED:-1}

@@ -59,6 +59,11 @@ from app.domain.session.ports.conversation_store import (
 )
 from app.domain.session.ports.session_store import SessionStore  # noqa: F401 —— 保留类型引用
 from app.infrastructure.cache.semantic_cache import SemanticCache, is_cacheable_query
+from app.infrastructure.cache.agui_structured_cache import (
+    StructuredCacheTicket,
+    StructuredSemanticCache,
+    is_structured_cache_query,
+)
 from app.infrastructure.context import ShoppingContext, ShoppingContextSnapshot
 from app.infrastructure.eventbus import TradeEventBus, observe_run_events
 from app.infrastructure.budget import init_budget, remember_verified_result, get_budget, rule_fallback_text
@@ -96,6 +101,14 @@ class SubmitIntentOutput:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class StructuredCacheDecision:
+    """AG-UI 在执行 Agent 前获得的保守缓存判定。"""
+
+    ticket: StructuredCacheTicket | None
+    outcome: str
+
+
 def _tasks_snapshot(agent: Agent) -> dict:
     tasks = agent.state.tasks_context.tasks
     return {
@@ -123,6 +136,8 @@ class MainAgentOrchestrator:
         session_lease_factory: Callable[..., Any] | None = None,
         trade_state_provider: Callable[[str, str], Awaitable[dict]] | None = None,
         evidence_store: Any = None,
+        structured_cache: StructuredSemanticCache | None = None,
+        structured_cache_version: str = "",
     ) -> None:
         self._evidence_store = evidence_store
         self._trade_state_provider = trade_state_provider
@@ -132,6 +147,8 @@ class MainAgentOrchestrator:
         self._preference_store = preference_store
         self._conversation_store = conversation_store
         self._semantic_cache = semantic_cache
+        self._structured_cache = structured_cache
+        self._structured_cache_version = structured_cache_version
         self._output_guard_enabled = output_guard_enabled
         self._loop_detector = loop_detector
         self._token_budget_total = token_budget_total
@@ -146,6 +163,67 @@ class MainAgentOrchestrator:
         self._native_observer: ContextVar[Callable[[Any], None] | None] = ContextVar(
             "globex_native_event_observer", default=None,
         )
+
+    async def prepare_structured_cache(
+        self,
+        intent: SubmitIntentInput,
+        *,
+        has_history: bool = False,
+    ) -> StructuredCacheDecision:
+        """集中决定 AG-UI 请求能否查/写结构化缓存。
+
+        任何无法确认的状态都保守旁路。调用方不需要再了解交易、个人 Skill 或偏好存储。
+        """
+        cache = self._structured_cache
+        if cache is None or not getattr(cache, "enabled", False):
+            return StructuredCacheDecision(None, "disabled")
+        try:
+            server_has_history = (
+                await self._sessions.has_history(intent.shopping_session_id)
+                if hasattr(self._sessions, "has_history") else False
+            )
+        except Exception as err:  # noqa: BLE001
+            logger.warning("读取服务端会话历史失败，本轮缓存旁路：%s", type(err).__name__)
+            return StructuredCacheDecision(None, "error")
+        if has_history or server_has_history:
+            return StructuredCacheDecision(None, "bypass_history")
+        if intent.selected_skill is not None:
+            return StructuredCacheDecision(None, "bypass_policy")
+        if not is_structured_cache_query(intent.raw_query):
+            return StructuredCacheDecision(None, "bypass_unsafe")
+        try:
+            trade_state = (
+                await self._trade_state_provider(intent.buyer_id, intent.shopping_session_id)
+                if self._trade_state_provider else {}
+            )
+            if trade_state.get("orders") or trade_state.get("pending_confirmations"):
+                return StructuredCacheDecision(None, "bypass_policy")
+            factory = getattr(self._sessions, "_main_factory", None)
+            private_store = getattr(factory, "buyer_skill_store", None)
+            if private_store is not None and await asyncio.to_thread(private_store.list, intent.buyer_id):
+                return StructuredCacheDecision(None, "bypass_policy")
+        except Exception as err:  # noqa: BLE001
+            logger.warning("读取结构化缓存策略状态失败，本轮旁路：%s", type(err).__name__)
+            return StructuredCacheDecision(None, "error")
+        scope = await self._preference_scope(intent.buyer_id)
+        if scope is None:
+            return StructuredCacheDecision(None, "error")
+        try:
+            dynamic_version = (
+                await self._sessions.cache_context_version(intent.shopping_session_id, intent.buyer_id)
+                if hasattr(self._sessions, "cache_context_version") else ""
+            )
+        except Exception as err:  # noqa: BLE001
+            logger.warning("绑定缓存 Prompt/能力版本失败，本轮旁路：%s", type(err).__name__)
+            return StructuredCacheDecision(None, "error")
+        ticket_version = ":".join(part for part in (self._structured_cache_version, dynamic_version) if part)
+        return StructuredCacheDecision(StructuredCacheTicket(
+            buyer_id=intent.buyer_id,
+            preference_scope=scope,
+            locale=intent.locale,
+            currency=intent.currency,
+            version=ticket_version,
+        ), "eligible")
 
     async def available_skills(self, buyer_id: str | None = None) -> dict:
         """买家只读目录：与主 Agent 的实际业务工具集合及资料版本保持一致。"""

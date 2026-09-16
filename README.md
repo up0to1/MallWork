@@ -165,6 +165,7 @@ flowchart TD
 | `RERANKER_API_KEY` | 精排服务密钥，留空时复用 `LLM_API_KEY` |
 | `QDRANT_URL` | 为空时使用本地嵌入式索引；多进程应使用 Qdrant 服务端 |
 | `REDIS_URL`、`QUEUE_ENABLED`、`WORKER_CONCURRENCY` | Redis 缓存、限流和异步队列 |
+| `AGUI_STRUCTURED_CACHE_ENABLED`、`AGUI_CACHE_TTL_SECONDS` | 页面结构化语义缓存开关与 TTL；默认开启、600 秒 |
 | `LANGFUSE_BASE_URL/PUBLIC_KEY/SECRET_KEY` | 三项齐全时启用现有 OTLP 导出 |
 | `TAVILY_API_KEY` | 配置后注册 Web 搜索工具 |
 | `TOKEN_BUDGET_TOTAL`、`REPLY_TOKEN_BUDGET` | 限制请求和回复预算，默认不限制 |
@@ -219,7 +220,14 @@ uv run python -m scripts.eval.latency_benchmark \
   --output path/to/latency-report.json
 ```
 
-只有在代码和离线报告全部通过后，才运行一次真实模型 release benchmark。真实评测需显式关闭语义缓存（`SEMANTIC_CACHE_ENABLED=0`），并固定同一批用例、模型和 Prompt；评测脚本不会因为普通测试或离线分析自动发起模型请求。
+只有在代码和离线报告全部通过后，才运行一次真实模型 release benchmark。常规 Agent 评测需同时设置 `SEMANTIC_CACHE_ENABLED=0` 和 `AGUI_STRUCTURED_CACHE_ENABLED=0`，并固定同一批用例、模型和 Prompt；评测脚本不会因为普通测试或离线分析自动发起模型请求。
+
+页面结构化缓存有独立 benchmark。默认命令只生成并校验 20 个主题、100 条 eligible 请求的数据，不访问服务；只有显式加 `--execute` 才会产生真实模型调用。每个主题首条回源，后四条检查缓存命中、回复与商品卡一致性；另有多轮和上下文指代旁路控制。报告保存在本地 `eval/cache/`，不会提交到 Git。
+
+```bash
+uv run python -m scripts.eval.cache_benchmark
+uv run python -m scripts.eval.cache_benchmark --execute
+```
 
 `scripts/verify_parallel.py` 属于真实服务验证脚本，会产生模型调用；开发阶段不要运行它，等串行/并行采样数据准备好后再作为最终 benchmark 使用。
 
@@ -231,7 +239,7 @@ uv run python -m scripts.eval.latency_benchmark \
 uv run python -m scripts.eval.release_preflight --strict
 ```
 
-它会核对商品 150/45、知识库 50/15、Agent 100/30 的总量与 release split，输出数据、源码和配置键的状态；不会打印密钥，也不会发起模型请求。`--strict` 只有在工作区干净、必需模型配置齐全且 `SEMANTIC_CACHE_ENABLED=0` 时才通过。
+它会核对商品 150/45、知识库 50/15、Agent 100/30 的总量与 release split，输出数据、源码和配置键的状态；不会打印密钥，也不会发起模型请求。`--strict` 只有在工作区干净、必需模型配置齐全且两个语义缓存均关闭时才通过。
 
 运行中的低敏聚合可通过受保护的 `/internal/metrics/summary` 查看，包含业务回合、缓存 hit/miss、工具调用次数、工具错误率及 P50/P95 延迟。工具遥测不会记录原始参数、商品回复或买家身份；模型 Token 只有在工具作用域内可明确关联时才计入工具维度，未知 usage 保持为 `null`。
 
