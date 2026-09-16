@@ -12,6 +12,7 @@ API 进程与 worker 进程共用同一份接线，避免两处各自 new 一套
 from __future__ import annotations
 
 import hashlib
+import json
 import asyncio
 import logging
 from dataclasses import dataclass, field
@@ -39,6 +40,7 @@ from app.domain.queue.ports.task_queue import TaskQueue
 from app.infrastructure.cache.cached_embedding_client import CachedEmbeddingClient
 from app.infrastructure.cache.redis_cache import RedisCache
 from app.infrastructure.cache.semantic_cache import SemanticCache
+from app.infrastructure.cache.agui_structured_cache import StructuredSemanticCache
 from app.infrastructure.embedding.openai_embedding_client import OpenAIEmbeddingClient
 from app.infrastructure.eventbus import TradeEventBus
 from app.infrastructure.persistence.in_memory_repositories import (
@@ -104,6 +106,7 @@ class Container:
     orchestrator: MainAgentOrchestrator
     cache: RedisCache
     semantic_cache: SemanticCache
+    structured_cache: StructuredSemanticCache
     task_queue: Optional[TaskQueue]
     backplane: Optional[RedisEventBackplane]
     query_order: QueryOrderUseCase
@@ -186,6 +189,14 @@ async def build_container() -> Container:
         threshold=settings.semantic_cache_threshold,
         enabled=settings.semantic_cache_enabled,
         # 模型名 + 提示词指纹入 key：改 prompt 或换模型后旧回复自动失效
+        namespace=f"{settings.llm_model}:{_prompt_fingerprint()}",
+    )
+    structured_cache = StructuredSemanticCache(
+        cache,
+        embedder,
+        threshold=settings.semantic_cache_threshold,
+        ttl_seconds=settings.agui_cache_ttl_seconds,
+        enabled=settings.agui_structured_cache_enabled,
         namespace=f"{settings.llm_model}:{_prompt_fingerprint()}",
     )
     knowledge_base = build_category_knowledge_base(settings)
@@ -279,15 +290,30 @@ async def build_container() -> Container:
         embedder=embedder,
         relevance_enabled=settings.preference_relevance_enabled,
     )
+    capability_registry = CapabilityRegistry(settings.data_dir / "capabilities.db")
+    buyer_skill_store = BuyerSkillStore(settings.data_dir / "buyer_skills.db")
     main_factory = MainAgentFactory(
         settings, search_factory, trade_factory, bus, preference_store, circuit_registry, throttle,
         sequencing=sequencing_tracker,
         loop_detector=loop_detector,
         preference_selector=preference_selector,
-        capability_registry=CapabilityRegistry(settings.data_dir / "capabilities.db"),
-        buyer_skill_store=BuyerSkillStore(settings.data_dir / "buyer_skills.db"),
+        capability_registry=capability_registry,
+        buyer_skill_store=buyer_skill_store,
     )
     sessions = SessionRegistry(main_factory, session_store, enforce_owner=settings.session_owner_binding, prompt_registry=prompt_registry)
+    structured_cache_version = hashlib.sha256(json.dumps({
+        "source": source_fingerprint,
+        "model": settings.llm_model,
+        "prompt_file": _prompt_fingerprint(),
+        "prompt_pin": settings.prompt_pin_version,
+        "capabilities": capability_registry.version_fingerprint(),
+        "embedding": settings.embedding_model,
+        "product_collection": settings.qdrant_collection,
+        "category_collection": settings.category_kb_collection,
+        "hybrid_recall": settings.hybrid_recall_enabled,
+        "reranker_model": settings.reranker_model,
+        "reranker_protocol": settings.reranker_protocol,
+    }, sort_keys=True, ensure_ascii=True).encode("utf-8")).hexdigest()[:24]
     orchestrator = MainAgentOrchestrator(
         sessions, bus, preference_store, conversation_store, semantic_cache,
         output_guard_enabled=settings.output_guard_enabled,
@@ -299,6 +325,8 @@ async def build_container() -> Container:
         session_lease_factory=task_queue.session_lease if task_queue is not None else None,
         evidence_store=search_factory.evidence_store,
         trade_state_provider=confirmations.agent_state,
+        structured_cache=structured_cache,
+        structured_cache_version=structured_cache_version,
     )
 
     return Container(
@@ -307,6 +335,7 @@ async def build_container() -> Container:
         orchestrator=orchestrator,
         cache=cache,
         semantic_cache=semantic_cache,
+        structured_cache=structured_cache,
         task_queue=task_queue,
         backplane=backplane,
         query_order=query_order,
@@ -320,7 +349,12 @@ async def build_container() -> Container:
         trade_store=trade_store,
         trade_db_engine=trade_db_engine,
         runtime={"app_source_sha256": source_fingerprint},
-        ag_ui_runtime=AGUIRuntime(AGUIJournal(settings.data_dir / "ag_ui_runs.db"), orchestrator, confirmations),
+        ag_ui_runtime=AGUIRuntime(
+            AGUIJournal(settings.data_dir / "ag_ui_runs.db"),
+            orchestrator,
+            confirmations,
+            structured_cache=structured_cache,
+        ),
         session_store=session_store,
         identity_policy=identity_policy,
         prompt_registry=prompt_registry,

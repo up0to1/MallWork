@@ -14,6 +14,12 @@ import uvicorn
 from app.infrastructure.ag_ui_journal import AGUIJournal, JournalConflict, JournalForbidden, JournalLeaseLost
 from app.presentation.ag_ui import parse_intent, register_ag_ui_routes
 from app.presentation.ag_ui_runtime import AGUIRuntime
+from app.application.agents.orchestrator import StructuredCacheDecision
+from app.infrastructure.cache.agui_structured_cache import (
+    AGUICachedResponse,
+    StructuredCacheHit,
+    StructuredCacheTicket,
+)
 
 
 def body(run="r1", session="s1", buyer="b1", query="查询旅行背包"):
@@ -43,6 +49,46 @@ class ControlledOrchestrator:
             raise
         event_observer(SimpleNamespace(type="TEXT_BLOCK_END", block_id="text-1"))
         return SimpleNamespace(final_text="已找到适合周末旅行的背包", error=None)
+
+
+class CacheAwareOrchestrator(ControlledOrchestrator):
+    def __init__(self, *, decision=None, **kwargs):
+        super().__init__(**kwargs)
+        self.decision = decision or StructuredCacheDecision(
+            StructuredCacheTicket("b1", "", "zh-CN", "CNY", "v1"), "eligible",
+        )
+
+    async def prepare_structured_cache(self, intent, *, has_history=False):
+        if has_history:
+            return StructuredCacheDecision(None, "bypass_history")
+        return self.decision
+
+
+class FakeStructuredCache:
+    enabled = True
+
+    def __init__(self, hit=None, *, broken=False):
+        self.hit = hit
+        self.broken = broken
+        self.lookups = []
+        self.remembered = []
+
+    async def lookup(self, ticket, query):
+        self.lookups.append((ticket, query))
+        if self.broken:
+            raise RuntimeError("redis down")
+        return self.hit
+
+    async def remember(self, ticket, query, response):
+        self.remembered.append((ticket, query, response))
+
+
+class FakeCacheMetrics:
+    def __init__(self):
+        self.rows = []
+
+    def observe(self, outcome, **values):
+        self.rows.append((outcome, values))
 
 
 async def wait_status(journal, run_id, status):
@@ -125,16 +171,75 @@ async def test_restart_preserves_finished_run_without_reexecuting_model(tmp_path
     assert saved["run"]["status"] == "completed"
 
 
+async def test_structured_cache_hit_replays_page_state_without_agent_call(tmp_path):
+    cached = AGUICachedResponse.from_runtime("缓存推荐", {
+        "products": [{"product_id": "P-1", "title": "旅行背包", "currency": "CNY"}],
+        "searchCompleted": True,
+    })
+    cache = FakeStructuredCache(StructuredCacheHit(cached, 0.99, "推荐旅行背包"))
+    metrics = FakeCacheMetrics()
+    agent = CacheAwareOrchestrator()
+    runtime = AGUIRuntime(AGUIJournal(tmp_path / "runs.db"), agent, structured_cache=cache, cache_metrics=metrics)
+    request = RunAgentInput.model_validate(body())
+
+    await runtime.start(request, parse_intent(request))
+    await wait_status(runtime.journal, "r1", "completed")
+
+    run = await runtime.journal.run("r1", "b1")
+    assert agent.calls == 0
+    assert run["messages"][-1]["content"] == "缓存推荐"
+    assert run["state"]["products"] == cached.products
+    assert run["state"]["searchCompleted"] is True
+    events, _, _ = await runtime.journal.events("r1", "b1")
+    assert any(item["event"].get("name") == "cache.hit" for item in events)
+    assert not any(item["event"]["type"].startswith("TOOL_CALL") for item in events)
+    assert [row[0] for row in metrics.rows] == ["hit"]
+
+
+async def test_structured_cache_miss_executes_agent_then_remembers_projection(tmp_path):
+    cache = FakeStructuredCache()
+    metrics = FakeCacheMetrics()
+    agent = CacheAwareOrchestrator()
+    runtime = AGUIRuntime(AGUIJournal(tmp_path / "runs.db"), agent, structured_cache=cache, cache_metrics=metrics)
+    request = RunAgentInput.model_validate(body())
+
+    await runtime.start(request, parse_intent(request))
+    await wait_status(runtime.journal, "r1", "completed")
+
+    assert agent.calls == 1
+    assert len(cache.lookups) == len(cache.remembered) == 1
+    remembered = cache.remembered[0][2]
+    assert remembered.final_text == "已找到适合周末旅行的背包"
+    assert remembered.products == []
+    assert [row[0] for row in metrics.rows] == ["miss"]
+
+
+async def test_structured_cache_failure_falls_back_to_agent(tmp_path):
+    cache = FakeStructuredCache(broken=True)
+    metrics = FakeCacheMetrics()
+    agent = CacheAwareOrchestrator()
+    runtime = AGUIRuntime(AGUIJournal(tmp_path / "runs.db"), agent, structured_cache=cache, cache_metrics=metrics)
+    request = RunAgentInput.model_validate(body())
+
+    await runtime.start(request, parse_intent(request))
+    await wait_status(runtime.journal, "r1", "completed")
+
+    assert agent.calls == 1
+    assert [row[0] for row in metrics.rows] == ["error"]
+
+
 async def test_abandoned_run_becomes_durable_interrupted_terminal(tmp_path):
     path = tmp_path / "runs.db"
     journal = AGUIJournal(path)
-    await journal.reserve(body(), "b1", "dead-process", lease_seconds=0.04)
+    # Windows CI may spend more than 40 ms opening the first SQLite connection.
+    # Keep enough time for the initial append, then wait beyond the lease below.
+    await journal.reserve(body(), "b1", "dead-process", lease_seconds=0.5)
     await journal.append("r1", "dead-process", [
         {"type": "RUN_STARTED", "threadId": "s1", "runId": "r1"},
         {"type": "TEXT_MESSAGE_START", "messageId": "a1", "role": "assistant"},
         {"type": "TEXT_MESSAGE_CONTENT", "messageId": "a1", "delta": "已保存部分内容"},
     ])
-    await asyncio.sleep(0.06)
+    await asyncio.sleep(0.55)
     reopened = AGUIJournal(path)
     run = await reopened.run("r1", "b1")
     assert run["status"] == "interrupted"

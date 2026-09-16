@@ -152,6 +152,7 @@ def build_app() -> FastAPI:
             "trade_database": trade_database,
             "redis": redis_state,
             "semantic_cache": c.semantic_cache.enabled,
+            "agui_structured_cache": bool(getattr(getattr(c, "structured_cache", None), "enabled", False)),
             "queue": "enabled" if c.task_queue is not None else "disabled",
             "queue_depth": await c.task_queue.depth() if c.task_queue is not None else 0,
         }

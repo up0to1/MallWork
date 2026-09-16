@@ -492,22 +492,27 @@ async def _guard_semantic_cache(allow: bool, *, strict: bool = False) -> dict:
             response = await client.get(f"{BASE_URL}/health")
             response.raise_for_status()
             health = response.json()
-        if not isinstance(health, dict) or type(health.get("semantic_cache")) is not bool:
-            raise ValueError("/health 缺少明确的 semantic_cache 布尔状态")
+        if (not isinstance(health, dict)
+                or type(health.get("semantic_cache")) is not bool
+                or type(health.get("agui_structured_cache")) is not bool):
+            raise ValueError("/health 缺少明确的 semantic_cache/agui_structured_cache 布尔状态")
     except Exception as err:  # noqa: BLE001 —— 拿不到 health 不阻断，后续请求自会报错
         if strict:
             raise RuntimeError(f"release 前置检查失败，无法证明服务和缓存状态：{err}") from err
         print(f"警告：无法读取 /health（{err}），跳过缓存检查", flush=True)
-        return {"status": "UNVERIFIED", "semantic_cache": None}
-    if health.get("semantic_cache") and not allow:
+        return {"status": "UNVERIFIED", "semantic_cache": None, "agui_structured_cache": None}
+    if (health.get("semantic_cache") or health.get("agui_structured_cache")) and not allow:
         raise SystemExit(
-            "拒绝跑回归：服务端语义缓存处于开启状态，评分会变成评缓存。\n"
-            "请用 SEMANTIC_CACHE_ENABLED=0 重启服务后重试，例如：\n"
-            "  SEMANTIC_CACHE_ENABLED=0 docker compose -f docker/docker-compose.yaml up -d app worker\n"
+            "拒绝跑回归：服务端文本或 AG-UI 结构化缓存处于开启状态，评分会变成评缓存。\n"
+            "请用 SEMANTIC_CACHE_ENABLED=0 AGUI_STRUCTURED_CACHE_ENABLED=0 重启服务后重试，例如：\n"
+            "  SEMANTIC_CACHE_ENABLED=0 AGUI_STRUCTURED_CACHE_ENABLED=0 "
+            "docker compose -f docker/docker-compose.yaml up -d app worker\n"
             "确认要带缓存跑则加 --allow-semantic-cache。",
         )
     # 仅记录健康端点已有的白名单字段，不复制 URL、密钥或完整服务配置。
-    result = {key: health[key] for key in ("status", "model", "semantic_cache", "database", "redis", "queue") if key in health}
+    result = {key: health[key] for key in (
+        "status", "model", "semantic_cache", "agui_structured_cache", "database", "redis", "queue",
+    ) if key in health}
     if isinstance(health.get("runtime"), dict):
         result["runtime"] = {"app_source_sha256": health["runtime"].get("app_source_sha256")}
     if isinstance(health.get("prompt_registry"), dict):

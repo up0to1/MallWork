@@ -46,7 +46,8 @@ def report(env, version, **metric_changes):
         "selected_count": 1, "split_count": 1, "case_ids": ["c1"], "selected_content_sha256": "a" * 64},
         "parameters": {"gate_scope": "release", "dry_run": False}, "data": {"sha256": "b" * 64}, "code": {"sha256": "c" * 64},
         "models": {"main_configured": "test-model"}, "service_runtime": {"status": "matched", "matching": True, "local_app_source_sha256": "c" * 64, "server_app_source_sha256": "c" * 64},
-        "server_health": {"semantic_cache": False, "prompt_registry": {"effective_version": {
+        "server_health": {"semantic_cache": False, "agui_structured_cache": False,
+            "prompt_registry": {"effective_version": {
             "version_id": version, "content_sha256": version[2:], "toolset_sha256": env.registry.contract_hash}}},
         "execution": {"gate": "PASS", "status": "COMPLETED", "inputs_unchanged": True,
             "actual_strategies": {"vector_rerank": 1}, "release_metrics": metrics,
