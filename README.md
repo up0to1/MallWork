@@ -1,119 +1,37 @@
 # Mall Work
 
-Mall Work 是一个面向跨境电商选购场景的 Agent 工作台。买家可以用自然语言描述需求，系统负责检索商品、查询品类知识、处理偏好，并在页面上流式展示回答、商品卡和交易确认单。个人 Skill 和长期偏好也可以直接在页面中维护。
+Mall Work 是面向跨境电商选品和导购流程的 Agent 工作台。买家用自然语言描述预算、用途、收货地和偏好，系统检索商品与品类知识，给出可解释的建议，并在确认后创建本地订单。页面通过 AG-UI 接收流式回复、商品卡和确认状态，长期偏好与个人 Skill 可以在页面中维护。
 
-项目目前使用版本化样例商品目录和本地业务账本，尚未接入真实的商品供给、支付或物流系统。服务已经包含持久化、运行恢复、观测和质量验证能力；正式检索和 Agent 质量门禁仍有未通过项，需以实际评测结果为准。
+当前版本是可运行的业务原型：商品目录和品类知识使用版本化样例数据，订单、库存和确认记录写入本地账本。项目没有接入真实商品供给、支付、物流、账号体系或跨设备身份服务。涉及价格、库存、税费和配送时，应以工具返回的数据为准。
 
-## 产品方向
+## 产品范围
 
-当前版本先解决买家的选购问题：理解自然语言需求，结合商品目录和品类知识给出建议，并在需要下单时保留确认环节。
+- 买家选品：按自然语言条件检索商品，查看规格、价格、库存和适配的收货地。
+- 商品比较：在同一会话中保留商品卡，支持对比和收藏。
+- 品类问答：从品类知识库检索参数判断、预算建议和注意事项。
+- 偏好与 Skill：对喜欢或避免的偏好执行增删改查；个人 Skill 以 Markdown 步骤保存，只能指导已有工具。
+- 交易确认：买家明确批准后才提交本地订单和库存事务，重复确认具有幂等保护。
+- 运行恢复：服务端保存会话和 AG-UI 事件，网页刷新或断线后可以从游标继续读取。
 
-后续会把同一套 Agent 能力扩展到商家侧，处理商品、运营和独立站接入。平台通过 Store Adapter 对接不同站点，Agent 负责理解目标、调用工具和执行受控流程，平台底座负责数据、权限、交易和审计。
+商家运营、独立站接入和真实交易渠道属于后续扩展，不是当前版本的默认能力。
 
-## 启动方式
+## 技术栈
 
-| 方式 | 适用场景 | 依赖 |
-| --- | --- | --- |
-| Codex 协助启动 | 第一次运行项目或环境不熟悉 | Codex、可用的模型凭据 |
-| 本机双终端 | 开发和调试前后端 | Python 3.11 到 3.13、uv、Node.js 22、npm、模型服务 |
-| Docker Compose | 一次启动 API、worker、Redis、Qdrant 和前端 | Docker Desktop、Compose v2、模型服务 |
-
-### 使用 Codex 启动
-
-在 Codex 中打开包含本 README、`pyproject.toml` 和 `frontend/` 的 `MallWork` 目录，然后说明：
-
-> 帮我把这个项目跑起来。先读 README 和现有配置，检查前置环境与端口；保留现有数据和 .env，不要覆盖。安装缺失依赖，启动前后端，验证健康检查和一次真实页面选购，最后告诉我访问地址。缺少模型凭据时告诉我需要配置哪些字段，不要打印密钥。
-
-如果页面一直转圈、刷新后看不到历史记录，或需要查看一轮请求经过了哪些 Agent 和工具，可以直接提供错误信息。密钥只放在本机 `.env` 中，不要粘贴到对话里。
-
-### 本机开发
-
-以下命令从项目根目录执行。Python 版本由 `pyproject.toml` 约束，前端 Docker 构建使用 Node.js 22。模型服务需要支持 OpenAI 兼容协议、工具调用和流式输出。
-
-**1. 安装依赖**
-
-```bash
-python3 --version
-uv --version
-node --version
-npm --version
-uv sync --frozen
-npm --prefix frontend ci
-```
-
-复制项目或更换机器后，请重新同步依赖，不要继续使用旧虚拟环境中的绝对路径。
-
-**2. 配置模型**
-
-已有 `.env` 时直接编辑，不要覆盖。首次创建可以执行：
-
-```bash
-touch .env
-```
-
-在 `.env` 中填写模型服务字段。下面的模型名只是默认示例，需要替换为当前账户可以访问的模型。
-
-```dotenv
-LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-LLM_API_KEY=填写你的真实密钥
-LLM_MODEL=qwen3-max
-LLM_FALLBACK_MODEL=qwen-plus
-EMBEDDING_MODEL=text-embedding-v4
-```
-
-`LLM_API_KEY` 为空或仍是占位符时不能进行真实对话。Embedding 默认复用 LLM 网关和密钥；如果网关不提供 embedding，需要单独设置 `EMBEDDING_BASE_URL` 和 `EMBEDDING_API_KEY`。首次启动会加载商品目录、初始化持久库，并尝试建立商品和知识向量索引，这一步可能产生 embedding 调用费用。
-
-最小本机模式使用 SQLite 和本地 Qdrant，不需要 MySQL、Redis、Docker 或 Langfuse。已有 Redis 或 Qdrant 配置时，不要为了启动而清空数据，先确认服务地址和数据归属。
-
-**3. 启动后端**
-
-```bash
-uv run python -m uvicorn app.presentation.server:app --host 127.0.0.1 --port 8000 --workers 1
-```
-
-本地 Qdrant 会锁定数据目录，因此先只启动一个 API 进程，不要让第二个 API 或 worker 共用同一个本地目录。
-
-**4. 启动前端**
-
-```bash
-npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173 --strictPort
-```
-
-打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)。前端会把 `/commerce` 和 `/health` 代理到 `http://127.0.0.1:8000`，通常不需要额外配置 CORS 或 `VITE_API_BASE`。
-
-项目默认端口是 5173。如果使用 5174，请同时固定协议、主机名和端口。同一演示买家的浏览器存储按来源隔离，`localhost`、`127.0.0.1`、5173 和 5174 不会共享身份。
-
-**5. 验证服务**
-
-```bash
-curl --fail http://127.0.0.1:8000/health
-```
-
-健康接口返回 `status: ok` 只说明服务、数据库和已启用的 Redis 可用，不代表模型或精排服务已经通过验证。启动后建议在页面发送一次“预算 300 元以内，找一个寄到中国的轻便背包”，检查流式回答、商品卡和运行记录。接口文档见 [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)。
-
-要验证生产构建，可以执行：
-
-```bash
-npm --prefix frontend run build
-npm --prefix frontend run preview -- --host 127.0.0.1 --port 5174 --strictPort
-```
-
-Preview 使用 `dist/`，修改源码后需要重新 build。
-
-## 页面功能
-
-| 入口 | 行为 |
+| 层次 | 技术与用途 |
 | --- | --- |
-| 我的选购 | 输入用途、预算和收货地，查看流式回答、商品卡、规格详情、商品比较和收藏 |
-| `/` 选择 Skill | 输入 `/` 选择方案，服务端校验版本和内容哈希后交给 Agent 执行 |
-| 我的 Skill | 编写名称、使用场景和 Markdown 步骤；内容只对当前买家可用 |
-| 长期偏好 | 添加、修改和删除喜欢或避免的偏好；每轮执行前加载最新内容 |
-| 对话历史 | 从服务端恢复会话，浏览器缓存只用于加速读取 |
-| 交易确认 | 买家明确批准后，才执行本地订单和库存事务 |
+| Agent 编排 | AgentScope 2.x、Supervisor-Workers、MainAgent、SearchAgent、TradeAgent |
+| API 与协议 | FastAPI、Pydantic、AG-UI Protocol、SSE、WebSocket |
+| 前端 | React 18、TypeScript、Vite、官方 AG-UI Client |
+| 检索 | BM25 关键词召回、Qdrant 向量召回、RRF 融合、HTTP Reranker |
+| 模型 | OpenAI 兼容 LLM 网关、Embedding 网关、可选 DashScope Qwen 精排 |
+| 数据与缓存 | SQLite、Qdrant、Redis Streams、结构化语义缓存 |
+| 可靠性 | AgentLoop、LoopDetector、超时与幂等、lease/fencing/CAS |
+| 观测与评测 | OpenTelemetry/OTLP、可选 Langfuse、离线数据集与 release benchmark |
+| 工程环境 | Python 3.11 到 3.13、uv、Node.js 22、npm、Docker Compose |
 
-例如可以说“记住我喜欢轻便的小众设计”“把喜欢黑色改成喜欢蓝色”或“删除喜欢蓝色这条偏好”。只有保存成功的条目才会进入长期记忆。个人 Skill 只能指导已有工具的使用，不能上传脚本或扩大工具权限。
+## 系统结构
 
-## 请求路径
+一次网页请求由 FastAPI 接收，经 Orchestrator 载入买家身份、会话、偏好、Skill 和 Prompt 版本，再交给 MainAgent。简单问题在主 Agent 内完成，需要独立上下文或并行检索时，通过 `task_dispatch` 调用 SearchAgent 或 TradeAgent。工具层负责商品、知识、偏好和交易操作，结果写入持久库并以结构化 AG-UI 事件返回前端。
 
 ```mermaid
 flowchart TD
@@ -136,46 +54,102 @@ flowchart TD
     Orchestrator -. OTLP .-> Trace[Langfuse / OTel Collector]
 ```
 
-- 前端使用 React 18、TypeScript 和 Vite，通过 `@ag-ui/client/core 0.0.59` 对接后端 `ag-ui-protocol 0.1.22`。商品和确认数据由结构化事件提供，不从模型文本猜价格、库存或订单状态。
-- Agent 编排使用 AgentScope 2.x。MainAgent 处理简单任务，需要并行、上下文隔离或长链时再通过 `task_dispatch` 调用 SearchAgent 或 TradeAgent。
-- 代码采用 DDD 洋葱架构。领域层定义实体和端口，应用层负责用例、工具和编排，基础设施层实现数据库、模型和检索适配，FastAPI 位于最外层。
-- 检索支持 BM25 和 Qdrant 向量召回，再用 RRF 融合并交给 HTTP reranker 精排。服务异常时会降级到可用的向量或关键词路径；预算等硬约束由代码过滤。设置 `HYBRID_RECALL_ENABLED=1` 开启混合召回，Compose 默认值为 0。
-- 偏好从持久库动态加载，个人 Skill 只在需要时读取正文。工具证据和模型决策分开保存，支持回查、清理和压缩。
-- 确认、幂等操作、订单和库存由 SQLite 事务提交。会话使用 lease、fencing 和 CAS 防止并发旧写，队列支持 pending 回收、死信和归档。
-- OTel/OTLP 关联 API、Agent、模型和工具调用，Langfuse 可接收追踪和评分。质量验证区分开发数据和正式数据，不用单测通过代替效果结论。
+前端使用 React 18、TypeScript 和 Vite，通过 `@ag-ui/client/core 0.0.59` 对接后端 `ag-ui-protocol 0.1.22`。商品和确认信息来自结构化事件，不从模型文本猜价格、库存或订单状态。
 
-网页的 AG-UI 请求在 API 进程中直接执行并写入运行日志。Redis 队列只服务 `/commerce/intents` 等异步入口，`QUEUE_ENABLED=1` 不会自动改变网页请求路径。
+代码采用 DDD 洋葱架构。领域层定义实体、仓储和端口，应用层负责用例、工具和编排，基础设施层实现模型、检索、缓存、数据库、队列和观测适配，FastAPI 位于最外层。
 
-## 数据和持久化
+## RAG 检索链路
 
-默认 `DATA_DIR` 为项目下的 `data/`，自定义目录建议使用绝对路径。SQLite 模式下，数据库文件分别保存会话、偏好、确认、订单、Skill、AG-UI 运行日志和队列归档；本地向量索引位于 `data/qdrant/`，也可以改用 Qdrant 服务端。
+1. 解析用户问题，提取预算、目的地、类别和其他硬约束。
+2. 商品侧按配置选择 BM25、向量或混合召回。混合模式将两路排名用 RRF 合并。
+3. 召回结果交给 HTTP Reranker 精排。精排不可用时，系统降级到仍可用的关键词或向量路径。
+4. 代码层再次执行预算、库存和配送地过滤，避免模型绕过硬约束。
+5. Agent 根据检索证据组织解释，商品卡和价格明细通过结构化事件发送给前端。
 
-演示买家 ID、近期会话缓存、当前会话指针和收藏保存在同源浏览器存储中。清除站点存储、更换域名或端口只会改变默认演示身份，不代表服务端数据已删除。项目当前没有账号登录或跨设备身份找回。
+品类知识库使用同一套向量基础设施，但与商品集合分开管理。当前没有训练或微调 Embedding、双塔模型，使用的是外部 Embedding 服务。`HYBRID_RECALL_ENABLED=1` 才会启用商品混合召回，Compose 默认值为 0。
 
-不要通过删除 `data/` 来处理启动问题。备份 SQLite 时应先停止写入，或使用一致性备份方法，不能只复制主文件而忽略 WAL。断开或刷新网页只会断开订阅，服务端本轮仍会继续执行；点击“停止”才会明确取消。
+## 记忆、缓存与可靠性
 
-## 配置项
+会话分为近期消息、历史摘要和可管理的长期偏好。偏好在每轮执行前从持久库读取，支持新增、修改和删除；个人 Skill 只在需要时读取正文。页面结构化缓存可以保存回复、商品卡和必要事件，并按会话与上下文条件旁路，避免把过期商品信息直接复用。
 
-完整默认值以 [settings.py](app/infrastructure/settings.py) 为准。密钥和环境覆盖项只写入本机 `.env` 或进程环境，不提交仓库。
+AgentLoop 包含循环检测、工具调用超时、重复调用保护和错误降级。确认、订单和库存操作使用事务与幂等键；会话使用 lease、fencing 和 CAS，降低并发旧写覆盖新状态的风险。OTel/OTLP 会关联 API、Agent、模型和工具调用，工具级遥测只保留聚合信息，不记录原始买家参数。
 
-| 配置 | 作用 |
-| --- | --- |
-| `EMBEDDING_BASE_URL/API_KEY/MODEL`、`EMBEDDING_DIM` | embedding 网关和向量维度；更换模型或维度前需要规划重建索引 |
-| `RERANKER_BASE_URL`、`RERANKER_MODEL`、`RERANKER_PROTOCOL` | HTTP 精排服务，支持通用协议和百炼 `dashscope` 协议 |
-| `RERANKER_API_KEY` | 精排服务密钥，留空时复用 `LLM_API_KEY` |
-| `QDRANT_URL` | 为空时使用本地嵌入式索引；多进程应使用 Qdrant 服务端 |
-| `REDIS_URL`、`QUEUE_ENABLED`、`WORKER_CONCURRENCY` | Redis 缓存、限流和异步队列 |
-| `AGUI_STRUCTURED_CACHE_ENABLED`、`AGUI_CACHE_TTL_SECONDS` | 页面结构化语义缓存开关与 TTL；默认开启、600 秒 |
-| `LANGFUSE_BASE_URL/PUBLIC_KEY/SECRET_KEY` | 三项齐全时启用现有 OTLP 导出 |
-| `TAVILY_API_KEY` | 配置后注册 Web 搜索工具 |
-| `TOKEN_BUDGET_TOTAL`、`REPLY_TOKEN_BUDGET` | 限制请求和回复预算，默认不限制 |
-| `IDENTITY_MODE`、`IDENTITY_HMAC_SECRET` | 客户端声明身份或 HMAC 身份校验 |
-| `PROMPT_PIN_VERSION` | 将会话固定到已导入的 Prompt 版本 |
-| `API_PROXY_TARGET`、`VITE_API_BASE` | 前端代理目标或跨域直连 API 的地址 |
+## 启动方式
 
-所有 `VITE_*` 都可能进入浏览器构建产物，不能放模型密钥、Langfuse 私钥或 HMAC 服务端密钥。
+| 方式 | 适用场景 | 依赖 |
+| --- | --- | --- |
+| 本机双终端 | 开发和调试前后端 | Python 3.11 到 3.13、uv、Node.js 22、npm、模型服务 |
+| Docker Compose | 一次启动 API、worker、Redis、Qdrant 和前端 | Docker Desktop、Compose v2、模型服务 |
 
-## Docker Compose
+### 本机开发
+
+以下命令从项目根目录执行。Python 版本由 `pyproject.toml` 约束，模型服务需要支持 OpenAI 兼容协议、工具调用和流式输出。
+
+**1. 安装依赖**
+
+```bash
+python3 --version
+uv --version
+node --version
+npm --version
+uv sync --frozen
+npm --prefix frontend ci
+```
+
+**2. 配置模型**
+
+已有 `.env` 时直接编辑，不要覆盖。首次创建可以执行：
+
+```bash
+touch .env
+```
+
+在 `.env` 中填写模型服务字段。模型名只是示例，需要替换为当前账户可访问的模型。
+
+```dotenv
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+LLM_API_KEY=填写你的真实密钥
+LLM_MODEL=qwen3-max
+LLM_FALLBACK_MODEL=qwen-plus
+EMBEDDING_MODEL=text-embedding-v4
+```
+
+`LLM_API_KEY` 为空或仍是占位符时不能进行真实对话。Embedding 默认复用 LLM 网关和密钥；如果网关不提供 embedding，需要单独设置 `EMBEDDING_BASE_URL` 和 `EMBEDDING_API_KEY`。首次启动会加载商品目录、初始化持久库，并尝试建立商品和知识向量索引，这一步可能产生 embedding 调用费用。
+
+**3. 启动后端**
+
+```bash
+uv run python -m uvicorn app.presentation.server:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+本地 Qdrant 会锁定数据目录，因此先只启动一个 API 进程，不要让第二个 API 或 worker 共用同一个本地目录。
+
+**4. 启动前端**
+
+```bash
+npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173 --strictPort
+```
+
+打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)。前端会把 `/commerce` 和 `/health` 代理到 `http://127.0.0.1:8000`。
+
+**5. 验证服务**
+
+```bash
+curl --fail http://127.0.0.1:8000/health
+```
+
+健康接口返回 `status: ok` 只说明服务、数据库和已启用的 Redis 可用，不代表模型或精排服务已经通过验证。启动后可以在页面发送一次“预算 300 元以内，找一个寄到中国的轻便背包”，检查流式回答、商品卡和运行记录。接口文档见 [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)。
+
+要验证生产构建，可以执行：
+
+```bash
+npm --prefix frontend run build
+npm --prefix frontend run preview -- --host 127.0.0.1 --port 5174 --strictPort
+```
+
+Preview 使用 `dist/`，修改源码后需要重新 build。
+
+### Docker Compose
 
 在根目录准备好 `.env` 和模型凭据，确认 5173、8000、6333、6379 没有被其他服务占用：
 
@@ -188,19 +162,40 @@ docker compose --env-file .env -f docker/docker-compose.yaml logs --tail 100 app
 
 访问 [http://127.0.0.1:5173](http://127.0.0.1:5173)。Compose 会启动 API、worker、Qdrant、Redis 和 Nginx 静态前端，Nginx 同源代理 API 并关闭 SSE 缓冲。`config --quiet` 只验证配置，不会把展开后的密钥打印出来。
 
-Compose 使用 `app-data`、`qdrant-data` 和 `redis-data` 命名卷，不会自动读取本机 `data/` 中的买家记录或已发布方案。容器内不要使用 `localhost` 访问宿主机模型服务，应使用部署环境可达的地址。
-
-暂停服务但保留数据：
+Compose 使用 `app-data`、`qdrant-data` 和 `redis-data` 命名卷。暂停服务但保留数据：
 
 ```bash
 docker compose --env-file .env -f docker/docker-compose.yaml down
 ```
 
-不要加 `-v`，否则会删除命名卷。
+不要加 `-v`，否则会删除命名卷。容器内不要用 `localhost` 访问宿主机模型服务，应使用部署环境可达的地址。
 
-## 验证和排错
+## 配置项
 
-最近一次后端全量测试为 931 passed、0 skipped，前端为 96 passed 且生产构建通过。不同阶段分别留有证据；本次 README 整理不宣称重新运行全部业务测试。评测数据和运行产物位于本地 `eval/`，该目录不会提交到 Git。
+完整默认值以 [settings.py](app/infrastructure/settings.py) 为准。密钥和环境覆盖项只写入本机 `.env` 或进程环境，不提交仓库。
+
+| 配置 | 作用 |
+| --- | --- |
+| `EMBEDDING_BASE_URL/API_KEY/MODEL`、`EMBEDDING_DIM` | embedding 网关和向量维度；更换模型或维度前需要规划重建索引 |
+| `RERANKER_BASE_URL`、`RERANKER_MODEL`、`RERANKER_PROTOCOL` | HTTP 精排服务，支持通用协议和百炼 `dashscope` 协议 |
+| `RERANKER_API_KEY` | 精排服务密钥，留空时复用 `LLM_API_KEY` |
+| `QDRANT_URL` | 为空时使用本地嵌入式索引；多进程应使用 Qdrant 服务端 |
+| `REDIS_URL`、`QUEUE_ENABLED`、`WORKER_CONCURRENCY` | Redis 缓存、限流和异步队列 |
+| `AGUI_STRUCTURED_CACHE_ENABLED`、`AGUI_CACHE_TTL_SECONDS` | 页面结构化语义缓存开关与 TTL |
+| `LANGFUSE_BASE_URL/PUBLIC_KEY/SECRET_KEY` | 三项齐全时启用现有 OTLP 导出 |
+| `TAVILY_API_KEY` | 配置后注册 Web 搜索工具 |
+| `TOKEN_BUDGET_TOTAL`、`REPLY_TOKEN_BUDGET` | 限制请求和回复预算，默认不限制 |
+| `IDENTITY_MODE`、`IDENTITY_HMAC_SECRET` | 客户端声明身份或 HMAC 身份校验 |
+| `PROMPT_PIN_VERSION` | 将会话固定到已导入的 Prompt 版本 |
+| `API_PROXY_TARGET`、`VITE_API_BASE` | 前端代理目标或跨域直连 API 的地址 |
+
+所有 `VITE_*` 都可能进入浏览器构建产物，不能放模型密钥、Langfuse 私钥或 HMAC 服务端密钥。
+
+## 数据、测试与评测
+
+默认 `DATA_DIR` 为项目下的 `data/`。SQLite 保存会话、偏好、确认、订单、Skill、AG-UI 运行日志和队列归档；本地向量索引位于 `data/qdrant/`，也可以改用 Qdrant 服务端。浏览器只保存演示买家 ID、会话指针和读取加速缓存，清除站点存储不会删除服务端数据。
+
+评测数据和运行产物位于本地 `eval/`，该目录不会提交到 Git。开发阶段先做离线校验，缓存统计、工具遥测和串行与并行延迟分析都可以使用单元测试、Mock Worker 或已保存事件回放，不会自动调用模型。
 
 ```bash
 LANGFUSE_BASE_URL='' LANGFUSE_PUBLIC_KEY='' LANGFUSE_SECRET_KEY='' uv run python -m pytest -q
@@ -209,9 +204,7 @@ npm --prefix frontend run build
 uv run python -m scripts.eval.validate_datasets
 ```
 
-真实模型冒烟和正式评测会调用外部服务，不能用占位密钥代替效果验收。Redis 故障恢复测试需要本机可用的 `redis-server`；如果系统找不到该命令，相关测试会跳过。
-
-开发阶段默认只做零成本验证：缓存统计、任务指标聚合、工具遥测和串行/并行延迟分析均可使用单元测试、Mock Worker 或已保存事件离线回放，不会调用模型。延迟分析脚本只读取 JSONL 样本：
+延迟分析脚本只读取 JSONL 样本：
 
 ```bash
 uv run python -m scripts.eval.latency_benchmark \
@@ -220,39 +213,20 @@ uv run python -m scripts.eval.latency_benchmark \
   --output path/to/latency-report.json
 ```
 
-只有在代码和离线报告全部通过后，才运行一次真实模型 release benchmark。常规 Agent 评测需同时设置 `SEMANTIC_CACHE_ENABLED=0` 和 `AGUI_STRUCTURED_CACHE_ENABLED=0`，并固定同一批用例、模型和 Prompt；评测脚本不会因为普通测试或离线分析自动发起模型请求。
-
-页面结构化缓存有独立 benchmark。默认命令只生成并校验 20 个主题、100 条 eligible 请求的数据，不访问服务；只有显式加 `--execute` 才会产生真实模型调用。每个主题首条回源，后四条检查缓存命中、回复与商品卡一致性；命中率按 80 条重复变体统计（首条冷启动 miss 不计入分母）；另有多轮和上下文指代旁路控制。报告保存在本地 `eval/cache/`，不会提交到 Git。
-
-```bash
-uv run python -m scripts.eval.cache_benchmark
-uv run python -m scripts.eval.cache_benchmark --execute
-```
-
-`scripts/verify_parallel.py` 属于真实服务验证脚本，会产生模型调用；开发阶段不要运行它，等串行/并行采样数据准备好后再作为最终 benchmark 使用。
-
-商品 BM25 离线档（`--strategy bm25`）和品类 runner 的选集/门槛校验采用延迟导入，不要求本机先安装 Qdrant 或 AgentScope；只有真正执行向量/知识库检索时才需要对应依赖和服务。
-
-最终评测前可先运行只读冻结检查：
+正式 release benchmark 会调用外部模型，应固定同一批用例、模型和 Prompt，并关闭语义缓存与页面结构化缓存。最终评测前可先运行只读冻结检查：
 
 ```bash
 uv run python -m scripts.eval.release_preflight --strict
 ```
 
-它会核对商品 150/45、知识库 50/15、Agent 100/30 的总量与 release split，输出数据、源码和配置键的状态；不会打印密钥，也不会发起模型请求。`--strict` 只有在工作区干净、必需模型配置齐全且两个语义缓存均关闭时才通过。
+它会核对商品、知识库和 Agent release split 的数量、源码和配置状态，不会打印密钥，也不会发起模型请求。真实模型冒烟和效果评测不能用占位密钥代替。
 
-运行中的低敏聚合可通过受保护的 `/internal/metrics/summary` 查看，包含业务回合、缓存 hit/miss、工具调用次数、工具错误率及 P50/P95 延迟。工具遥测不会记录原始参数、商品回复或买家身份；模型 Token 只有在工具作用域内可明确关联时才计入工具维度，未知 usage 保持为 `null`。
+页面结构化缓存有独立 benchmark。默认命令只生成并校验 20 个主题、100 条 eligible 请求的数据，不访问服务；只有显式加 `--execute` 才会产生真实模型调用。每个主题首条回源，后四条检查缓存命中、回复与商品卡一致性。命中率按 80 条重复变体统计，首条冷启动 miss 不计入分母。报告保存在本地 `eval/cache/`，不会提交到 Git。
 
-| 现象 | 优先检查 |
-| --- | --- |
-| 缺少 `LLM_API_KEY`、401 或 403 | `.env`、环境变量覆盖、模型访问权限；不要输出完整密钥 |
-| 429 或等待很久 | 网关配额、并发上限、请求间隔和备用模型权限 |
-| `/health` 返回 200，但无商品或效果差 | 模型、embedding、reranker 日志和实际 `recall_strategy` |
-| Qdrant 目录被锁 | 是否有第二个 API 或 worker 使用相同本地目录 |
-| 异步 intents 请求一直等待 | Redis、队列开关和 worker 是否匹配 |
-| 修改前端后还是旧页面 | 是否使用了旧的 preview dist，重新 build 后刷新 |
-| 刷新或换地址后记录不见 | 同源买家 ID、`DATA_DIR`、数据库和服务端历史 |
-| Prompt 或工具合同版本不匹配 | 导入当前合同并核对本机 pin，必要时开启新选购 |
+```bash
+uv run python -m scripts.eval.cache_benchmark
+uv run python -m scripts.eval.cache_benchmark --execute
+```
 
 ## 目录说明
 
@@ -265,7 +239,7 @@ app/composition.py   依赖装配
 app/worker.py        Redis 意图消费者
 frontend/            React 页面、AG-UI 客户端和前端测试
 knowledge/           品类知识及来源清单
-data/catalog-v1.jsonl 版本化样例目录；其他 data 内容为运行态数据
+data/catalog-v1.jsonl  版本化样例目录；其他 data 内容为运行态数据
 scripts/             冒烟、评测、版本管理和身份 token CLI
 tests/               后端回归测试
 docker/              全栈 Compose 配置
@@ -273,4 +247,4 @@ docker/              全栈 Compose 配置
 
 主要 API 分组：`/commerce/ag-ui/run`、`/commerce/ag-ui/runs/*`、`/commerce/ag-ui/sessions/*`；`/commerce/skills`、`/commerce/my-skills`、`/commerce/preferences`、`/commerce/confirmations/*` 和 `/commerce/orders/*`；兼容入口 `/commerce/intents`、`/commerce/intents/async`、`/commerce/tasks/{id}` 和 WebSocket `/commerce/events`。以运行服务的 `/docs` 查看方法、参数和身份要求。
 
-当前样例目录包含 500 个 SPU、705 个 SKU，知识库有 45 篇；正式集包含 150 条商品检索、50 条知识检索和 100 条 Agent 用例。样例规模不代表真实全量电商供给。精排可用性、独立 release 达标、真实登录、跨设备身份、worker 的 Langfuse 远端验收，以及 Hybrid、A/B 和策略收益仍需继续验证。
+样例目录包含 500 个 SPU、705 个 SKU，知识库有 45 篇；正式集包含 150 条商品检索、50 条知识检索和 100 条 Agent 用例。样例规模不代表真实全量电商供给。精排可用性、独立 release 达标、真实登录、跨设备身份、worker 的远端观测验收，以及不同检索策略的收益仍需按最新评测报告确认。
