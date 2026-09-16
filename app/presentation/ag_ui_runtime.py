@@ -75,7 +75,10 @@ class AGUIRuntime:
             entry = Running(owner, started + self.lease_seconds)
             self.running[body.run_id] = entry
             effective = RunAgentInput.model_validate(run["input"])
-            entry.task = asyncio.create_task(self._produce(effective, intent, entry), name=f"agui-run:{body.run_id}")
+            entry.task = asyncio.create_task(
+                self._produce(effective, intent, entry, client_has_history=len(body.messages) > 1),
+                name=f"agui-run:{body.run_id}",
+            )
         return run
 
     async def cancel(self, run_id, buyer_id):
@@ -91,7 +94,7 @@ class AGUIRuntime:
             run = await self.journal.run(run_id, buyer_id)
         return run
 
-    async def _produce(self, body, intent, entry):
+    async def _produce(self, body, intent, entry, *, client_has_history: bool = False):
         queue = asyncio.Queue()
         adapter = AGUIRunAdapter(body, queue.put_nowait)
 
@@ -156,7 +159,7 @@ class AGUIRuntime:
                 decision = await self.orchestrator.prepare_structured_cache(
                     intent,
                     # 客户端带历史时只会导致保守旁路；不会扩大缓存命中范围。
-                    has_history=len(body.messages) > 1,
+                    has_history=client_has_history or len(body.messages) > 1,
                 )
                 cache_ticket = decision.ticket
                 cache_outcome = decision.outcome

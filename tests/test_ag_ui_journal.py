@@ -228,6 +228,23 @@ async def test_structured_cache_failure_falls_back_to_agent(tmp_path):
     assert [row[0] for row in metrics.rows] == ["error"]
 
 
+async def test_structured_cache_bypasses_client_supplied_history_before_journal_projection(tmp_path):
+    cache = FakeStructuredCache()
+    metrics = FakeCacheMetrics()
+    agent = CacheAwareOrchestrator()
+    runtime = AGUIRuntime(AGUIJournal(tmp_path / "runs.db"), agent, structured_cache=cache, cache_metrics=metrics)
+    request_body = body()
+    request_body["messages"].insert(0, {"id": "old", "role": "assistant", "content": "历史内容"})
+    request = RunAgentInput.model_validate(request_body)
+
+    await runtime.start(request, parse_intent(request))
+    await wait_status(runtime.journal, "r1", "completed")
+
+    assert agent.calls == 1
+    assert cache.lookups == []
+    assert [row[0] for row in metrics.rows] == ["bypass_history"]
+
+
 async def test_abandoned_run_becomes_durable_interrupted_terminal(tmp_path):
     path = tmp_path / "runs.db"
     journal = AGUIJournal(path)
