@@ -7,6 +7,7 @@ OpenAI 兼容 /v1/embeddings 客户端（httpx 直连，不引入 openai SDK 的
 from __future__ import annotations
 
 import os
+import asyncio
 
 import httpx
 
@@ -27,11 +28,16 @@ _MAX_BATCH = int(os.getenv("EMBEDDING_MAX_BATCH", "10"))
 
 
 class OpenAIEmbeddingClient(EmbeddingClient):
-    def __init__(self, settings: Settings, timeout_seconds: float = 15.0) -> None:
+    def __init__(self, settings: Settings, timeout_seconds: float | None = None) -> None:
         self._base_url = settings.embedding_base_url.rstrip("/")
         self._api_key = settings.embedding_api_key
         self._model = settings.embedding_model
-        self._timeout = timeout_seconds
+        self._timeout = timeout_seconds if timeout_seconds is not None else getattr(
+            settings, "embedding_timeout_seconds", 30.0,
+        )
+        self._max_retries = max(
+            0, getattr(settings, "embedding_max_retries", int(os.getenv("EMBEDDING_MAX_RETRIES", "2"))),
+        )
 
     async def embed(self, text: str) -> list[float]:
         return (await self.embed_batch([text]))[0]
@@ -50,19 +56,37 @@ class OpenAIEmbeddingClient(EmbeddingClient):
     async def _embed_chunk(
         self, client: httpx.AsyncClient, chunk: list[str],
     ) -> list[list[float]]:
-        response = await client.post(
-            f"{self._base_url}/embeddings",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            json={"model": self._model, "input": chunk},
-        )
-        response.raise_for_status()
-        if not response.content:
-            # 明确指向批量上限，不要让调用方对着 JSONDecodeError 猜
-            raise RuntimeError(
-                f"embedding 网关返回空 body（HTTP {response.status_code}，本批 {len(chunk)} 条）："
-                f"通常是单次批量超过网关上限，可调小 EMBEDDING_MAX_BATCH（当前 {_MAX_BATCH}）",
-            )
-        body = response.json()
+        body = None
+        for attempt in range(self._max_retries + 1):
+            try:
+                response = await client.post(
+                    f"{self._base_url}/embeddings",
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    json={"model": self._model, "input": chunk},
+                )
+                if response.status_code == 429 or response.status_code >= 500:
+                    response.raise_for_status()
+                response.raise_for_status()
+                if not response.content:
+                    # 明确指向批量上限，不要让调用方对着 JSONDecodeError 猜
+                    raise RuntimeError(
+                        f"embedding 网关返回空 body（HTTP {response.status_code}，本批 {len(chunk)} 条）："
+                        f"通常是单次批量超过网关上限，可调小 EMBEDDING_MAX_BATCH（当前 {_MAX_BATCH}）",
+                    )
+                body = response.json()
+                break
+            except httpx.RequestError:
+                if attempt >= self._max_retries:
+                    raise
+                await asyncio.sleep(0.5 * (2**attempt))
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code != 429 and error.response.status_code < 500:
+                    raise
+                if attempt >= self._max_retries:
+                    raise
+                await asyncio.sleep(0.5 * (2**attempt))
+        if body is None:  # pragma: no cover - loop either returns or raises
+            raise RuntimeError("embedding 请求未返回")
         if "data" not in body:
             raise RuntimeError(f"embedding 响应异常：{str(body)[:200]}")
         # 按 index 回位，避免网关乱序
