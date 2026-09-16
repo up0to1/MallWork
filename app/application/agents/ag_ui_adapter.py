@@ -27,6 +27,7 @@ from ag_ui.core import (
 )
 
 from app.infrastructure.eventbus import TradeEvent
+from app.infrastructure.cache.agui_structured_cache import AGUICachedResponse
 from app.application.agents.product_candidate_projection import ProductCandidateProjection
 
 _TOOL_LABELS = {
@@ -77,6 +78,29 @@ class AGUIRunAdapter:
     def start(self) -> None:
         self.emit(RunStartedEvent(thread_id=self.request.thread_id, run_id=self.request.run_id))
         self.snapshot()
+
+    def replay_cached(
+        self,
+        cached: AGUICachedResponse,
+        *,
+        similarity: float,
+        matched_query: str,
+    ) -> None:
+        """把白名单缓存投影成当前运行的 AG-UI 事件。
+
+        不重放原始工具事件；消息与运行标识始终使用本次请求的新 ID。
+        """
+        if self._completed:
+            return
+        self.state["status"] = "running"
+        self.state["products"] = copy.deepcopy(cached.products)
+        self.state["searchCompleted"] = cached.search_completed
+        self.emit(CustomEvent(name="cache.hit", value={
+            "similarity": similarity,
+            "matched_query": matched_query,
+        }))
+        self.snapshot()
+        self.finish(cached.final_text)
 
     def _progress(self, identifier: str, label: str, status: str) -> None:
         entries = self.state["progress"]

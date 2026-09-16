@@ -203,7 +203,9 @@ async def test_category_release_metrics_exclude_dev_and_initialization_errors_le
 
 async def test_agent_release_dispatch_and_report_are_restricted_to_release(tmp_path, monkeypatch):
     calls = []
-    async def health(*args, **kwargs): return {"semantic_cache": False, "model": "reported-model"}
+    async def health(*args, **kwargs): return {
+        "semantic_cache": False, "agui_structured_cache": False, "model": "reported-model",
+    }
     async def run_case(client, case, truth):
         calls.append(case["id"])
         return {"id": case["id"], "description": "test", "score": 1, "p0_pass": True, "verdict": "PASS", "judged": {}, "transcript": "test", "trace_events": [{"type": "tool.result", "payload": {"recall_strategy": "embedding_only"}}]}

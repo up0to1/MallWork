@@ -32,6 +32,7 @@ from app.application.agents.orchestrator import MainAgentOrchestrator, SubmitInt
 from app.application.tools.product_search_tool import build_product_search_tool
 from app.application.usecases.catalog_search import CatalogSearchUseCase
 from app.infrastructure.eventbus import TradeEventBus, observe_run_events
+from app.infrastructure.cache.agui_structured_cache import AGUICachedResponse
 from app.infrastructure.persistence.in_memory_repositories import InMemoryProductRepository
 from app.presentation.ag_ui import parse_intent, register_ag_ui_routes, stream_run
 
@@ -185,6 +186,32 @@ async def test_ag_ui_bypasses_text_only_semantic_cache_but_legacy_keeps_it():
     result = await orchestrator.handle_intent(parse_intent(body))
     assert result.final_text == "缓存推荐文本" and agent.calls == 1
     cache.lookup.assert_awaited_once()
+
+
+def test_structured_cache_replay_uses_fresh_run_ids_and_no_fake_tool_events():
+    emitted = []
+    adapter = AGUIRunAdapter(RunAgentInput.model_validate(request_data()), emitted.append)
+    cached = AGUICachedResponse.from_runtime("缓存命中的推荐。", {
+        "products": [{"product_id": "P-1", "title": "露营灯", "currency": "CNY"}],
+        "searchCompleted": True,
+    })
+
+    adapter.start()
+    adapter.replay_cached(cached, similarity=0.9876, matched_query="推荐露营灯")
+
+    events = [event.model_dump(mode="json", by_alias=True, exclude_none=True) for event in emitted]
+    types = [event["type"] for event in events]
+    assert types[0] == "RUN_STARTED" and types[-1] == "RUN_FINISHED"
+    assert not any(kind.startswith("TOOL_CALL") for kind in types)
+    cache_event = next(event for event in events if event["type"] == "CUSTOM" and event["name"] == "cache.hit")
+    assert cache_event["value"] == {"similarity": 0.9876, "matched_query": "推荐露营灯"}
+    final_state = [event["snapshot"] for event in events if event["type"] == "STATE_SNAPSHOT"][-1]
+    assert final_state["products"] == cached.products
+    assert final_state["searchCompleted"] is True
+    assert final_state["status"] == "completed"
+    messages = next(event["messages"] for event in events if event["type"] == "MESSAGES_SNAPSHOT")
+    assert messages[-1]["id"].startswith("run-test:")
+    assert messages[-1]["content"] == "缓存命中的推荐。"
 
 
 @pytest.mark.parametrize("reason", list(ReplyFinishedReason))

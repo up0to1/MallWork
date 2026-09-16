@@ -228,6 +228,33 @@ class SessionRegistry:
         self._agents.pop(shopping_session_id, None)
         self._claims.pop(shopping_session_id, None)
 
+    async def has_history(self, shopping_session_id: str) -> bool:
+        """只读检查服务端权威会话，供首轮缓存策略使用。
+
+        不能只相信客户端 messages：客户端可以只发本轮消息，但服务端可能已经保存过
+        摘要或上下文。解析失败向上抛出，让缓存策略保守旁路。
+        """
+        agent = self._agents.get(shopping_session_id)
+        if agent is not None:
+            return bool(agent.state.context or agent.state.summary)
+        state_json = await self._session_store.load(shopping_session_id)
+        if state_json is None:
+            return False
+        state = AgentState.model_validate_json(state_json)
+        return bool(state.context or state.summary)
+
+    async def cache_context_version(self, shopping_session_id: str, buyer_id: str) -> str:
+        """绑定并返回当前会话真实使用的 Prompt/能力版本，不构造 Agent。"""
+        import asyncio
+        parts: list[str] = []
+        capabilities = getattr(self._main_factory, "capability_registry", None)
+        if capabilities is not None:
+            parts.append(await asyncio.to_thread(capabilities.bind_session, shopping_session_id, buyer_id))
+        if self._prompt_registry is not None:
+            assignment = await self._prompt_registry.assign(shopping_session_id, buyer_id)
+            parts.append(str(assignment.get("version_id", "")))
+        return ":".join(parts)
+
     async def persist(self, shopping_session_id: str) -> bool:
         """捕获本轮票据后执行 CAS，旧执行者无法覆盖新 owner 的状态。"""
         agent = self._agents.get(shopping_session_id)

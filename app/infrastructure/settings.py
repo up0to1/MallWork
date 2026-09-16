@@ -83,6 +83,8 @@ class Settings:
     redis_url: str = ""  # 空 = 全部缓存能力关闭（零外部依赖）
     semantic_cache_enabled: bool = True  # Redis 可用时是否开启语义缓存
     semantic_cache_threshold: float = 0.95  # 余弦相似度阈值，调低会提高答非所问风险
+    agui_structured_cache_enabled: bool = True  # 页面链路结构化缓存；命中可恢复回复与商品卡
+    agui_cache_ttl_seconds: int = 600  # 页面答案比纯文本缓存更易随商品状态变化，默认 10 分钟
     # ---- 四期：队列削峰 ----
     queue_enabled: bool = True  # 需同时配上 REDIS_URL 才生效；否则意图在 API 进程内直跑
     queue_wait_seconds: float = 300.0  # 同步接口等待队列结果的上限
@@ -191,6 +193,9 @@ def load_settings() -> Settings:
         redis_url=os.getenv("REDIS_URL", ""),
         semantic_cache_enabled=os.getenv("SEMANTIC_CACHE_ENABLED", "1") not in ("0", "false", "False"),
         semantic_cache_threshold=float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.95")),
+        agui_structured_cache_enabled=os.getenv("AGUI_STRUCTURED_CACHE_ENABLED", "1")
+        not in ("0", "false", "False"),
+        agui_cache_ttl_seconds=int(os.getenv("AGUI_CACHE_TTL_SECONDS", "600")),
         queue_enabled=os.getenv("QUEUE_ENABLED", "1") not in ("0", "false", "False"),
         queue_wait_seconds=float(os.getenv("QUEUE_WAIT_SECONDS", "300")),
         worker_concurrency=int(os.getenv("WORKER_CONCURRENCY", "2")),
