@@ -107,7 +107,9 @@ def load_baselines(path: Path | None) -> dict[str, dict[str, float]]:
     }
 
 
-async def build_usecase(strategy: str) -> tuple[CatalogSearchUseCase, InMemoryProductRepository, str]:
+async def build_usecase(
+    strategy: str, *, reuse_existing_index: bool = False,
+) -> tuple[CatalogSearchUseCase, InMemoryProductRepository, str]:
     """按目标档位装配 UseCase。
 
     降级档位不是靠开关切换的，而是**靠少注入依赖自然形成**——这正好复用了线上
@@ -129,7 +131,12 @@ async def build_usecase(strategy: str) -> tuple[CatalogSearchUseCase, InMemoryPr
     settings = load_settings()
     embedder = OpenAIEmbeddingClient(settings)
     vector_index = QdrantProductIndex(settings)
-    ok = await bootstrap_product_index(repo, embedder, vector_index)
+    ok = False
+    if reuse_existing_index and await vector_index.is_ready():
+        ok = True
+        print("  复用已有 Qdrant 商品向量索引，跳过全量 embedding 建库")
+    else:
+        ok = await bootstrap_product_index(repo, embedder, vector_index)
     if not ok:
         print("  [warn] 向量建库失败，本档实际会降级到关键词召回")
 
@@ -416,6 +423,10 @@ async def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--formal-gates", action="store_true", help="兼容旧命令，等同 --profile online-main")
     parser.add_argument("--profile", choices=("online-main", "offline-fallback", "hybrid-experimental"), default=None)
     parser.add_argument("--baseline-file", type=Path, default=None, help="批准基线 JSON；任一指标下降超过 2 个百分点即阻断")
+    parser.add_argument(
+        "--reuse-existing-index", action="store_true",
+        help="复用已存在且非空的 Qdrant 商品索引，跳过全量 embedding 建库",
+    )
     parser.add_argument("--report-dir", default="eval")
     args = parser.parse_args(argv)
     if args.top_k <= 0:
@@ -475,7 +486,9 @@ async def main(argv: list[str] | None = None) -> None:
         print(f"\n[{strategy}] 装配中…")
         observations[strategy] = []
         try:
-            usecase, repo, _ = await build_usecase(strategy)
+            usecase, repo, _ = await build_usecase(
+                strategy, reuse_existing_index=args.reuse_existing_index,
+            )
             agg = await run_dataset(usecase, repo, cases, args.top_k, observations=observations[strategy])
         except Exception as err:  # 保留失败证据，不把初始化异常或部分执行算作通过
             errors[strategy] = f"{type(err).__name__}: {err}"

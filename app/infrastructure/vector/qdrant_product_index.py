@@ -40,6 +40,20 @@ class QdrantProductIndex(ProductVectorIndex):
                 vectors_config=VectorParams(size=vector_dim, distance=Distance.COSINE),
             )
 
+    async def is_ready(self) -> bool:
+        """Return whether the configured collection already contains points.
+
+        Release evaluators can reuse a bootstrapped immutable index instead of
+        regenerating embeddings for the whole catalog on every run.
+        """
+        try:
+            if not await self._client.collection_exists(self._collection):
+                return False
+            info = await self._client.get_collection(self._collection)
+            return bool(info.points_count)
+        except Exception:  # noqa: BLE001 - an unavailable index is not ready
+            return False
+
     async def upsert_products(self, products: list[Product], embeddings: list[list[float]]) -> None:
         if len(products) != len(embeddings):
             raise ValueError("products 与 embeddings 数量不一致")
