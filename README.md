@@ -222,7 +222,7 @@ uv run python -m scripts.eval.latency_benchmark \
 
 只有在代码和离线报告全部通过后，才运行一次真实模型 release benchmark。常规 Agent 评测需同时设置 `SEMANTIC_CACHE_ENABLED=0` 和 `AGUI_STRUCTURED_CACHE_ENABLED=0`，并固定同一批用例、模型和 Prompt；评测脚本不会因为普通测试或离线分析自动发起模型请求。
 
-页面结构化缓存有独立 benchmark。默认命令只生成并校验 20 个主题、100 条 eligible 请求的数据，不访问服务；只有显式加 `--execute` 才会产生真实模型调用。每个主题首条回源，后四条检查缓存命中、回复与商品卡一致性；另有多轮和上下文指代旁路控制。报告保存在本地 `eval/cache/`，不会提交到 Git。
+页面结构化缓存有独立 benchmark。默认命令只生成并校验 20 个主题、100 条 eligible 请求的数据，不访问服务；只有显式加 `--execute` 才会产生真实模型调用。每个主题首条回源，后四条检查缓存命中、回复与商品卡一致性；命中率按 80 条重复变体统计（首条冷启动 miss 不计入分母）；另有多轮和上下文指代旁路控制。报告保存在本地 `eval/cache/`，不会提交到 Git。
 
 ```bash
 uv run python -m scripts.eval.cache_benchmark

@@ -31,6 +31,7 @@ def test_summary_gates_hit_consistency_bypass_and_zero_model_path():
     assert report["eligible_lookups"] == 100
     assert report["hits"] == 80
     assert report["hit_rate"] == 0.8
+    assert report["repeat_hit_rate"] == 1.0
     assert report["replay_consistency"] == 1.0
     assert report["bypass_accuracy"] == 1.0
     assert report["false_hits"] == 0
