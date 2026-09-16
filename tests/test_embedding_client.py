@@ -23,6 +23,8 @@ def _settings():
         embedding_base_url="http://fake-gateway/v1",
         embedding_api_key="k",
         embedding_model="text-embedding-v4",
+        embedding_timeout_seconds=30.0,
+        embedding_max_retries=2,
     )
 
 
@@ -124,3 +126,19 @@ class TestEmptyBodyDiagnostics:
 
         with pytest.raises(httpx.HTTPStatusError):
             await OpenAIEmbeddingClient(_settings()).embed_batch(["a"])
+
+    async def test_retries_transient_disconnect(self, monkeypatch):
+        attempts = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise httpx.RemoteProtocolError("disconnect")
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1.0]}]})
+
+        _install(monkeypatch, handler)
+        vectors = await OpenAIEmbeddingClient(_settings()).embed_batch(["a"])
+
+        assert vectors == [[1.0]]
+        assert attempts == 2

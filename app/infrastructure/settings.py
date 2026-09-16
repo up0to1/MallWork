@@ -121,6 +121,8 @@ class Settings:
     reranker_protocol: str = "generic"  # generic 或 DashScope Text Rerank API
     reranker_timeout_seconds: float = 15.0  # 云端精排通常比普通 HTTP 请求耗时更长
     reranker_max_retries: int = 2  # 仅连接错误/429/5xx 重试，避免放大请求成本
+    embedding_timeout_seconds: float = 30.0
+    embedding_max_retries: int = 2
 
 
 def load_settings() -> Settings:
@@ -157,6 +159,8 @@ def load_settings() -> Settings:
         reranker_protocol=reranker_protocol,
         reranker_timeout_seconds=float(os.getenv("RERANKER_TIMEOUT_SECONDS", "15")),
         reranker_max_retries=int(os.getenv("RERANKER_MAX_RETRIES", "2")),
+        embedding_timeout_seconds=float(os.getenv("EMBEDDING_TIMEOUT_SECONDS", "30")),
+        embedding_max_retries=int(os.getenv("EMBEDDING_MAX_RETRIES", "2")),
         tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
         otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
         data_dir=data_dir,
