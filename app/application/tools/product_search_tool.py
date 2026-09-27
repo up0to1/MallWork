@@ -46,6 +46,9 @@ _CATEGORY_ALIASES = {
     "母婴宠物": ("母婴", "宠物", "婴儿"),
 }
 
+# 商品页面统一最多返回 8 条；召回候选池仍由 UseCase 独立控制。
+_MAX_PRODUCT_RESULT_TOP_K = 8
+
 
 def _normalize_category(category: Optional[str], normalized_query: str) -> Optional[str]:
     """把模型给出的叶子类目收敛到目录一级类目；无法识别时不施加错误硬过滤。"""
@@ -64,7 +67,7 @@ def build_product_search_tool(usecase: CatalogSearchUseCase, bus: TradeEventBus,
         normalized_query: str,
         category: Optional[str] = None,
         ship_to: Optional[str] = None,
-        top_k: int | str = 5,
+        top_k: int | str = 8,
         price_max_major: float | str | None = None,
         target_currency: str = "CNY",
         excluded_material_tags: list[str] | None = None,
@@ -82,7 +85,7 @@ def build_product_search_tool(usecase: CatalogSearchUseCase, bus: TradeEventBus,
             ship_to (`str | None`):
                 收货国家二位码，可选，如 "CN"、"US"；传入后过滤不可送达商品并内联到手价。
             top_k (`int`):
-                返回候选数量，默认 5。
+                返回候选数量，默认 8。
             price_max_major (`float | None`):
                 价格上限（target_currency 主单位），买家有预算硬约束时必传，由检索链路结构化过滤。
             target_currency (`str`):
@@ -94,6 +97,7 @@ def build_product_search_tool(usecase: CatalogSearchUseCase, bus: TradeEventBus,
         """
         # 模型有时会把数字参数当字符串传（实测 qwen3-max 传 "300"），
         # schema 层放宽为接受数字字符串，这里统一强转后再进检索链路。
+        requested_top_k = top_k
         if isinstance(top_k, str):
             try:
                 top_k = int(top_k)
@@ -102,6 +106,13 @@ def build_product_search_tool(usecase: CatalogSearchUseCase, bus: TradeEventBus,
                     content=[TextBlock(type="text", text=f"[error] top_k 非法：{top_k}")],
                     state=ToolResultState.ERROR,
                 )
+        if isinstance(top_k, bool) or not isinstance(top_k, int):
+            return ToolChunk(
+                content=[TextBlock(type="text", text=f"[error] top_k 非法：{top_k}")],
+                state=ToolResultState.ERROR,
+            )
+        # 线上展示口径固定为 Top-8；调用方传入更大的值时安全收敛，避免单次上下文膨胀。
+        top_k = min(top_k, _MAX_PRODUCT_RESULT_TOP_K)
         if isinstance(price_max_major, str):
             try:
                 price_max_major = float(price_max_major)
@@ -122,6 +133,7 @@ def build_product_search_tool(usecase: CatalogSearchUseCase, bus: TradeEventBus,
             "category": category,
             "ship_to": ship_to,
             "top_k": top_k,
+            "requested_top_k": requested_top_k,
             "price_max_major": price_max_major,
             "target_currency": target_currency,
             "excluded_material_tags": excluded_material_tags or [],
@@ -162,6 +174,10 @@ def build_product_search_tool(usecase: CatalogSearchUseCase, bus: TradeEventBus,
             {
                 "tool": "product_search_tool",
                 "hit_count": len(result["hits"]),
+                "requested_top_k": result.get("requested_top_k", top_k),
+                "returned_count": result.get("returned_count", len(result["hits"])),
+                "filtered_count": result.get("filtered_count", 0),
+                "result_status": result.get("result_status", "unknown"),
                 "recall_strategy": result["recall_strategy"],
                 "total_candidates": result["total_candidates"],
                 "rerank_applied": result["rerank_applied"],

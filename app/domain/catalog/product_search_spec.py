@@ -17,7 +17,8 @@ class ProductSearchSpec:
     category: Optional[str] = None
     ship_to: Optional[str] = None
     locale: str = "zh-CN"
-    top_k: int = 5
+    # 线上商品结果默认与正式评测口径保持一致，返回 Top-8。
+    top_k: int = 8
     # 到手价目标币种：命中 ship_to 时商品卡内联 landed_price（小计+运费+关税）
     target_currency: str = "CNY"
     # 价格硬约束（目标币种主单位）：硬约束由检索链路结构化过滤，不交给 embedding/reranker
@@ -30,7 +31,7 @@ class ProductSearchSpec:
     def __post_init__(self) -> None:
         if not self.normalized_query or not self.normalized_query.strip():
             raise ValueError("ProductSearchSpec.normalized_query required")
-        if type(self.top_k) is not int or not 1 <= self.top_k <= 50:
-            raise ValueError("ProductSearchSpec.top_k 必须为1到50的整数")
+        if type(self.top_k) is not int or not 1 <= self.top_k <= 8:
+            raise ValueError("ProductSearchSpec.top_k 必须为1到8的整数")
         if self.price_max_major is not None and (isinstance(self.price_max_major, bool) or not math.isfinite(self.price_max_major) or self.price_max_major < 0):
             raise ValueError("ProductSearchSpec.price_max_major 必须是有限的非负金额")

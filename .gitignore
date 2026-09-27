@@ -31,9 +31,11 @@ docs/superpowers/specs/
 docs/superpowers/plans/
 # 项目设计、研究和验证文档只保留在本地
 docs/
-# 运行态数据仍忽略；评测基准商品集必须随代码版本化。
-data/*
-!data/catalog-v1.jsonl
+# 商品语料与品类知识语料均不入库：由 scripts/ 下生成脚本重建，只留在本机。
+#   data/catalog-v1.jsonl  ← scripts/generate_catalog_fixture.py
+#   knowledge/*.md         ← scripts/generate_knowledge_fixture.py
+data/
+knowledge/
 # 根目录评测数据与报告只保留在本机；scripts/eval/ 中的 runner 仍随源码提交。
 /eval/
 /eval/releases/

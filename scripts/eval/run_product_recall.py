@@ -15,9 +15,9 @@
     # 无凭据也能跑：纯关键词档，适合 CI
     uv run python scripts/eval/run_product_recall.py --strategy keyword_2gram
 
-关于 K 的选择（重要）：`catalog_search._RECALL_TOP_N = 8` 限制了向量召回只取 8 个候选，
-因此向量档的 Recall@K 在 K>8 时**不可能再涨**，而关键词档是全库打分无上限。
-在 K=10 上对比两档等于系统性地偏袒关键词档，故默认 K=8。
+关于 K 的选择（重要）：线上默认结果为 Top-8；商品 UseCase 的向量候选池为 32，
+为硬过滤和精排留出空间。评测默认 K=8，与线上展示口径一致；候选池大小与最终指标 K
+保持独立，避免过滤或精排阶段因候选不足而限制 Recall@8。
 """
 from __future__ import annotations
 

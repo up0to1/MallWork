@@ -40,8 +40,8 @@ from app.infrastructure.retrieval.bm25 import bm25_rank, reciprocal_rank_fusion
 
 logger = logging.getLogger(__name__)
 
-# 一阶段召回候选数（> top_k，给精排留空间）
-_RECALL_TOP_N = 8
+# 一阶段召回候选数（大于线上默认 Top-8，给硬过滤和精排留空间）
+_RECALL_TOP_N = 32
 
 # 被硬约束挡掉的候选回传条数上限（只回摘要，避免上下文膨胀）
 _FILTERED_OUT_LIMIT = 3
@@ -153,38 +153,42 @@ class CatalogSearchUseCase:
 
         if self._embedder is not None and self._vector_index is not None:
             try:
-                scored = await self._vector_recall(spec)
+                # 先按业务硬约束补召回，再交给精排，避免过滤后候选不足。
+                scored = await self._vector_recall(spec, adaptive=True)
                 recall_strategy = "embedding_only"
             except Exception as err:  # noqa: BLE001 —— 召回基建异常必须降级而非失败
                 logger.warning("向量召回不可用，降级关键词召回：%s", err)
                 scored = []
 
-        if recall_strategy == "embedding_only" and scored:
-            # 二阶段精排；失败降级按向量分排序
+        filtered, filtered_out, filtered_count = self._filter_candidates(spec, scored)
+
+        if recall_strategy == "embedding_only" and filtered:
+            # 二阶段精排；失败降级按向量分排序。硬过滤已在精排前完成。
             try:
-                scored = await self._rerank(spec, scored)
+                filtered = await self._rerank(spec, filtered)
                 recall_strategy = "embedding_rerank"
                 rerank_applied = True
             except Exception as err:  # noqa: BLE001
                 logger.warning("rerank 不可用，按向量分排序：%s", err)
-        elif not scored:
+        elif not filtered and not scored:
             scored = await self._keyword_recall(spec)
             recall_strategy = "keyword_2gram"
 
-        # ship_to / 价格硬约束过滤 + top_k 截断（硬约束走结构化过滤，不交给模型）
-        filtered: list[tuple[float, Product]] = []
-        filtered_out: list[dict] = []
-        for score, product in scored:
-            reason = self._reject_reason(product, spec)
-            if reason is None:
-                filtered.append((score, product))
-            elif len(filtered_out) < _FILTERED_OUT_LIMIT:
-                filtered_out.append(self._to_rejected(product, spec, reason))
+        # 向量不可用时的关键词降级也统一执行硬过滤。
+        if recall_strategy == "keyword_2gram":
+            filtered, filtered_out, filtered_count = self._filter_candidates(spec, scored)
 
         hits = [self._to_card(score, product, spec) for score, product in filtered[: spec.top_k]]
+        result_status = "top_k_reached" if len(hits) >= spec.top_k else (
+            "filtered_by_constraints" if filtered_out else "insufficient_candidates"
+        )
         result = {
             "hits": [card.to_dict() for card in hits],
             "total_candidates": len(filtered),
+            "requested_top_k": spec.top_k,
+            "returned_count": len(hits),
+            "filtered_count": filtered_count,
+            "result_status": result_status,
             "recall_strategy": recall_strategy,
             "rerank_applied": rerank_applied,
         }
@@ -193,6 +197,25 @@ class CatalogSearchUseCase:
             # 会把超预算商品答成"没有这个商品"
             result["filtered_out"] = filtered_out
         return result
+
+    def _filter_candidates(
+        self,
+        spec: ProductSearchSpec,
+        scored: list[tuple[float, Product]],
+    ) -> tuple[list[tuple[float, Product]], list[dict], int]:
+        """在 Reranker 前执行确定性业务过滤，并保留有限的解释证据。"""
+        filtered: list[tuple[float, Product]] = []
+        filtered_out: list[dict] = []
+        filtered_count = 0
+        for score, product in scored:
+            reason = self._reject_reason(product, spec)
+            if reason is None:
+                filtered.append((score, product))
+            else:
+                filtered_count += 1
+                if len(filtered_out) < _FILTERED_OUT_LIMIT:
+                    filtered_out.append(self._to_rejected(product, spec, reason))
+        return filtered, filtered_out, filtered_count
 
     async def _execute_exact_ids(self, spec: ProductSearchSpec, identifiers: list[str]) -> dict:
         product_ids = list(dict.fromkeys(identifier.split("-S", 1)[0] for identifier in identifiers))
@@ -224,7 +247,13 @@ class CatalogSearchUseCase:
                     accepted = {sku.sku_id for sku in eligible_skus}
                     card["skus"] = [sku for sku in card["skus"] if sku["sku_id"] in accepted]
                 hits.append(card)
-        return {"hits": hits[:spec.top_k], "total_candidates": len(hits),
+        returned = hits[:spec.top_k]
+        result_status = "top_k_reached" if len(returned) >= spec.top_k else (
+            "filtered_by_constraints" if rejected else "insufficient_candidates"
+        )
+        return {"hits": returned, "total_candidates": len(hits),
+                "requested_top_k": spec.top_k, "returned_count": len(returned),
+                "filtered_count": len(rejected), "result_status": result_status,
                 "recall_strategy": "exact_id_lookup", "rerank_applied": False,
                 "requested_identifiers": identifiers, "missing_identifiers": missing,
                 "filtered_out": rejected[:_FILTERED_OUT_LIMIT], "existence_checked": True}
@@ -244,14 +273,18 @@ class CatalogSearchUseCase:
         lexical_hits, vector_hits = await asyncio.gather(lexical(), vector())
         # 硬约束先于候选截断，BM25会扫描当前小目录的全部词项命中。
         rejected = []
+        rejected_count = 0
         def eligible(ranking):
+            nonlocal rejected_count
             result = []
             for score, product in ranking:
                 reason = self._reject_reason(product, spec)
                 if reason is None:
                     result.append((score, product))
-                elif len(rejected) < _FILTERED_OUT_LIMIT:
-                    rejected.append(self._to_rejected(product, spec, reason))
+                else:
+                    rejected_count += 1
+                    if len(rejected) < _FILTERED_OUT_LIMIT:
+                        rejected.append(self._to_rejected(product, spec, reason))
             return result
         lexical_hits = eligible(lexical_hits)[:max(32, spec.top_k*4)]
         vector_eligible = eligible(vector_hits or [])
@@ -270,8 +303,14 @@ class CatalogSearchUseCase:
             if key not in seen:
                 seen.add(key)
                 deduped.append((score, product))
-        return {"hits": [self._to_card(score, p, spec).to_dict() for score, p in deduped[:spec.top_k]],
-                "total_candidates": len(deduped), "recall_strategy": strategy, "rerank_applied": rerank_applied,
+        hits = [self._to_card(score, p, spec).to_dict() for score, p in deduped[:spec.top_k]]
+        result_status = "top_k_reached" if len(hits) >= spec.top_k else (
+            "filtered_by_constraints" if rejected_count else "insufficient_candidates"
+        )
+        return {"hits": hits, "total_candidates": len(deduped),
+                "requested_top_k": spec.top_k, "returned_count": len(hits),
+                "filtered_count": rejected_count, "result_status": result_status,
+                "recall_strategy": strategy, "rerank_applied": rerank_applied,
                 "retrieval_variant": "bm25_vector_rrf_v1", "vector_available": vector_hits is not None,
                 "filtered_out": rejected}
 
