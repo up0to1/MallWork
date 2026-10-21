@@ -1,0 +1,20 @@
+# Only reviewed public material is admitted at the repository root.
+/*
+!/.gitignore
+!/README.md
+!/frontend/
+!/app/
+/app/*
+!/app/domain/
+# Local secrets and generated files stay private at any depth.
+.env
+.env.*
+*.secret.*
+*.local.*
+node_modules/
+dist/
+__pycache__/
+*.pyc
+*.log
+*.db
+*.sqlite*
